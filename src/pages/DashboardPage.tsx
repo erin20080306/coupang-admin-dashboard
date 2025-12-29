@@ -720,7 +720,7 @@ export default function DashboardPage() {
 
   const [freezeStart, setFreezeStart] = useState<number>(0);
   const [freezeEnd, setFreezeEnd] = useState<number>(0);
-  const [manualFrozenLeft, setManualFrozenLeft] = useState<number | null>(null);
+  const [manualFrozenLeft, setManualFrozenLeft] = useState<number | null>(0);
 
   const [attEndDate, setAttEndDate] = useState<string>('');
   const [attSingleDate, setAttSingleDate] = useState<string>('');
@@ -950,7 +950,7 @@ export default function DashboardPage() {
         setResult({ rows: gasRows as any, stats: stat });
         setStatus('success');
         setAttOpen(false);
-        setManualFrozenLeft(null);
+        setManualFrozenLeft(0);
         setFreezeStart(0);
         setFreezeEnd(0);
         setAttEndDate('');
@@ -984,7 +984,7 @@ export default function DashboardPage() {
     setResult(null);
     setError('');
     setGasHeaders([]);
-    setManualFrozenLeft(null);
+    setManualFrozenLeft(0);
     setFreezeStart(0);
     setFreezeEnd(0);
     setAttEndDate('');
