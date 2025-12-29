@@ -37,8 +37,8 @@ function getBaseUrl(): string | null {
 export async function gasGetWarehouseId(warehouse: string): Promise<string> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
-  const url = toUrl(base, { mode: 'getWarehouseId', wh: warehouse });
-  const res = await fetch(url);
+  const url = toUrl(base, { mode: 'getWarehouseId', wh: warehouse, t: String(Date.now()) });
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`API 錯誤 ${res.status}`);
   const json = (await res.json()) as GasWarehouseIdResult;
   if (!json || json.ok === false) throw new Error((json as any)?.error || '取得試算表 ID 失敗');
@@ -48,8 +48,8 @@ export async function gasGetWarehouseId(warehouse: string): Promise<string> {
 export async function gasVerifyLogin(name: string, birthday: string): Promise<GasLoginResult> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
-  const url = toUrl(base, { mode: 'verifyLogin', name, birthday });
-  const res = await fetch(url);
+  const url = toUrl(base, { mode: 'verifyLogin', name, birthday, t: String(Date.now()) });
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`API 錯誤 ${res.status}`);
   const json = (await res.json()) as GasLoginResult;
   return json;
@@ -69,8 +69,8 @@ function toUrl(base: string, params: Record<string, string | undefined>): string
 export async function gasGetSheets(warehouse: string): Promise<string[]> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
-  const url = toUrl(base, { mode: 'getSheets', wh: warehouse });
-  const res = await fetch(url);
+  const url = toUrl(base, { mode: 'getSheets', wh: warehouse, t: String(Date.now()) });
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`API 錯誤 ${res.status}`);
   const json = (await res.json()) as { sheetNames?: string[]; error?: string };
   if (json.error) throw new Error(json.error);
@@ -89,8 +89,9 @@ export async function gasQuerySheet(
     wh: warehouse,
     sheet,
     name: (name || '').trim(),
+    t: String(Date.now()),
   });
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`API 錯誤 ${res.status}`);
   const json = (await res.json()) as GasPayload;
   if ((json as any).error) throw new Error(String((json as any).error));
