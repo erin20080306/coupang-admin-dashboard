@@ -112,28 +112,39 @@ export function gasPayloadToRows(
   const headers = (payload.headers ?? []).map((h) => String(h ?? ''));
   const nameIdx = findNameIndex(headers);
 
-  const rows: GasRecordRow[] = (payload.rows ?? []).map((r, idx) => {
-    const obj: GasRecordRow = { id: `gas_${idx}` };
+  function isBlankRow(r: GasRow): boolean {
+    const v = r?.v || [];
     for (let i = 0; i < headers.length; i++) {
-      const key = headers[i] || `col_${i + 1}`;
-      obj[key] = r.v?.[i] ?? '';
+      const cell = String(v[i] ?? '').trim();
+      if (cell) return false;
     }
+    return true;
+  }
 
-    if (Array.isArray((r as any).bg)) obj._bg = (r as any).bg as string[];
-    if (Array.isArray((r as any).fc)) obj._fc = (r as any).fc as string[];
-    if (Array.isArray((r as any).att)) obj._att = (r as any).att as number[];
+  const rows: GasRecordRow[] = (payload.rows ?? [])
+    .filter((r) => !isBlankRow(r))
+    .map((r, idx) => {
+      const obj: GasRecordRow = { id: `gas_${idx}` };
+      for (let i = 0; i < headers.length; i++) {
+        const key = headers[i] || `col_${i + 1}`;
+        obj[key] = r.v?.[i] ?? '';
+      }
 
-    if (!options?.disableAttendance) {
-      const att = calcAttendance(payload.dateCols, r, options);
-      if (att) obj._attendance = att;
-    }
+      if (Array.isArray((r as any).bg)) obj._bg = (r as any).bg as string[];
+      if (Array.isArray((r as any).fc)) obj._fc = (r as any).fc as string[];
+      if (Array.isArray((r as any).att)) obj._att = (r as any).att as number[];
 
-    if (nameIdx >= 0) {
-      obj['姓名'] = r.v?.[nameIdx] ?? obj['姓名'];
-    }
+      if (!options?.disableAttendance) {
+        const att = calcAttendance(payload.dateCols, r, options);
+        if (att) obj._attendance = att;
+      }
 
-    return obj;
-  });
+      if (nameIdx >= 0) {
+        obj['姓名'] = r.v?.[nameIdx] ?? obj['姓名'];
+      }
+
+      return obj;
+    });
 
   return { headers, rows };
 }
