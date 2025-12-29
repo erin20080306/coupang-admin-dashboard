@@ -216,10 +216,60 @@ button {
   gap: 10px;
 }
 
-.kpi {
-  border: 1px solid var(--border);
+.kpiRow .kpi {
+  --kpi-accent: #2563eb;
+  --kpi-border: rgba(37, 99, 235, 0.28);
+  --kpi-tint: rgba(37, 99, 235, 0.14);
+  border: 1px solid var(--kpi-border);
   border-radius: 12px;
   padding: 12px;
+  background: #ffffff;
+  position: relative;
+  overflow: hidden;
+}
+
+.kpiRow .kpi::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(140px 90px at 18% 18%, var(--kpi-tint), transparent 65%);
+  pointer-events: none;
+}
+
+.kpiRow .kpi:nth-child(6n + 1) {
+  --kpi-accent: #2563eb;
+  --kpi-border: rgba(37, 99, 235, 0.28);
+  --kpi-tint: rgba(37, 99, 235, 0.14);
+}
+
+.kpiRow .kpi:nth-child(6n + 2) {
+  --kpi-accent: #059669;
+  --kpi-border: rgba(5, 150, 105, 0.26);
+  --kpi-tint: rgba(5, 150, 105, 0.14);
+}
+
+.kpiRow .kpi:nth-child(6n + 3) {
+  --kpi-accent: #d97706;
+  --kpi-border: rgba(217, 119, 6, 0.26);
+  --kpi-tint: rgba(217, 119, 6, 0.14);
+}
+
+.kpiRow .kpi:nth-child(6n + 4) {
+  --kpi-accent: #7c3aed;
+  --kpi-border: rgba(124, 58, 237, 0.24);
+  --kpi-tint: rgba(124, 58, 237, 0.14);
+}
+
+.kpiRow .kpi:nth-child(6n + 5) {
+  --kpi-accent: #e11d48;
+  --kpi-border: rgba(225, 29, 72, 0.22);
+  --kpi-tint: rgba(225, 29, 72, 0.12);
+}
+
+.kpiRow .kpi:nth-child(6n + 6) {
+  --kpi-accent: #0891b2;
+  --kpi-border: rgba(8, 145, 178, 0.24);
+  --kpi-tint: rgba(8, 145, 178, 0.14);
 }
 
 .kpiLabel {
@@ -231,6 +281,7 @@ button {
 .kpiValue {
   font-size: 22px;
   font-weight: 900;
+  color: var(--kpi-accent, var(--text));
 }
 
 .tableWrap {
