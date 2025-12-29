@@ -242,6 +242,21 @@ button {
   scrollbar-gutter: stable;
 }
 
+.filterRow th {
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.thFilterInput {
+  width: 100%;
+  min-width: 90px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  outline: none;
+  font-size: 12px;
+}
+
 .table {
   width: max-content;
   min-width: 100%;
@@ -262,6 +277,11 @@ button {
   font-weight: 900;
   white-space: nowrap;
   border-right: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.table thead tr.filterRow th {
+  top: 44px;
+  background: #ffffff;
 }
 
 .table thead th:last-child {

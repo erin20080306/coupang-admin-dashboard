@@ -112,10 +112,18 @@ export function gasPayloadToRows(
   const headers = (payload.headers ?? []).map((h) => String(h ?? ''));
   const nameIdx = findNameIndex(headers);
 
+  function cleanForBlankCheck(v: unknown): string {
+    return String(v ?? '')
+      .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
+      .replace(/\p{Cf}/gu, '')
+      .replace(/\s+/g, '')
+      .trim();
+  }
+
   function isBlankRow(r: GasRow): boolean {
     const v = r?.v || [];
     for (let i = 0; i < headers.length; i++) {
-      const cell = String(v[i] ?? '').trim();
+      const cell = cleanForBlankCheck(v[i]);
       if (cell) return false;
     }
     return true;
