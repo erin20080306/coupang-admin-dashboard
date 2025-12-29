@@ -391,17 +391,136 @@ function buildExcludeSet(): Set<string> {
     '休',
     '休假',
     '公休',
+    '例',
+    '國',
+    '休加',
     '特休',
     '病假',
+    '病',
+    '上休（病）',
+    '下休（病）',
     '事假',
+    '事',
+    '上休（事）',
+    '下休（事）',
     '喪假',
     '婚假',
     '產假',
     '育嬰',
+    '生理',
+    '生理假',
+    '上休（生理）',
+    '下休（生理）',
+    '曠',
+    '上休（曠）',
+    '下休（曠）',
+    '歲時祭儀假',
+    '公假',
     'OFF',
     'off',
     '離',
   ]);
+}
+
+function statusFromRate(rate: number): AttendanceSummary['status'] {
+  if (rate >= 0.9) return 'normal';
+  if (rate >= 0.75) return 'low';
+  return 'abnormal';
+}
+
+function normalizeWarehouseKey(wh: string): string {
+  return String(wh || '').trim().toUpperCase();
+}
+
+function pickWorstSourceSheet(warehouse: string, pages: string[]): string {
+  const wh = normalizeWarehouseKey(warehouse);
+  const list = Array.isArray(pages) ? pages : [];
+
+  function pickFirst(pred: (p: string) => boolean): string {
+    return list.find((p) => pred(String(p || '').trim())) || '';
+  }
+
+  if (wh === 'TAO1' || wh === 'TA01') {
+    return (
+      pickFirst((p) => p.includes('出勤記錄')) ||
+      pickFirst((p) => p.includes('班表')) ||
+      pickFirst((p) => p.includes('出勤')) ||
+      list[0] ||
+      ''
+    );
+  }
+
+  return (
+    pickFirst((p) => p.includes('班表')) ||
+    pickFirst((p) => p.includes('出勤記錄')) ||
+    pickFirst((p) => p.includes('出勤')) ||
+    list[0] ||
+    ''
+  );
+}
+
+function pickAttendanceSheets(pages: string[]): string[] {
+  const list = Array.isArray(pages) ? pages : [];
+  const keys = ['出勤時數', '出勤時間', '出勤備份'];
+  return list.filter((p) => keys.some((k) => String(p || '').includes(k)));
+}
+
+function findNameKeyFromHeaders(headers: string[]): string | null {
+  for (const h of headers) {
+    const s = String(h || '').trim();
+    if (!s) continue;
+    if (s === '姓名' || /^name$/i.test(s)) return s;
+  }
+  for (const h of headers) {
+    const s = String(h || '').trim();
+    if (!s) continue;
+    if (s.includes('姓名') || s.includes('員工') || /^name$/i.test(s) || /employee/i.test(s)) return s;
+  }
+  return null;
+}
+
+async function buildAttendanceKeySet(
+  warehouse: string,
+  pages: string[],
+  apiName: string
+): Promise<Set<string>> {
+  const sheetNames = pickAttendanceSheets(pages);
+  if (!sheetNames.length) return new Set();
+
+  const payloads = await Promise.all(
+    sheetNames.map((sn) => gasQuerySheet(warehouse, sn, apiName).catch(() => null))
+  );
+
+  const out = new Set<string>();
+  payloads.forEach((payload, idx) => {
+    if (!payload) return;
+    const sn = sheetNames[idx];
+    const { headers, rows } = gasPayloadToRows(payload, { disableAttendance: true, sheetName: sn });
+    const nameKey = findNameKeyFromHeaders(headers);
+    const dateKey = findDateKey(headers);
+    if (!nameKey || !dateKey) return;
+
+    for (const r of rows) {
+      const nm = String((r as any)[nameKey] ?? '').trim();
+      const ds = String((r as any)[dateKey] ?? '').trim();
+      if (!nm || !ds) continue;
+
+      let iso = guessISOFromText(ds);
+      if (!iso) {
+        const d = new Date(ds);
+        if (!Number.isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const mo = (`0${d.getMonth() + 1}`).slice(-2);
+          const da = (`0${d.getDate()}`).slice(-2);
+          iso = `${y}-${mo}-${da}`;
+        }
+      }
+      if (!iso) continue;
+      out.add(`${nm}|${iso}`);
+    }
+  });
+
+  return out;
 }
 
 function isShouldAttendCell(raw: unknown, exclude: Set<string>): boolean {
@@ -612,6 +731,9 @@ export default function DashboardPage() {
   const [leaveTag, setLeaveTag] = useState<string>('');
   const [leaveName, setLeaveName] = useState<string>('');
 
+  const [attWorstSourcePage, setAttWorstSourcePage] = useState<string>('');
+  const [attAll, setAttAll] = useState<Array<{ id: string; name: string; summary: AttendanceSummary }>>([]);
+
   const attendanceAllAgg = useMemo(() => {
     let expected = 0;
     let attended = 0;
@@ -643,22 +765,6 @@ export default function DashboardPage() {
     };
   }, [rows]);
 
-  const attAll = useMemo(() => {
-    const list = filteredRows
-      .map((r) => {
-        const a = getAttendanceFromRow(r);
-        if (!a) return null;
-        return {
-          id: String((r as any).id ?? Math.random()),
-          name: getNameFromRow(r),
-          summary: a,
-        };
-      })
-      .filter(Boolean) as Array<{ id: string; name: string; summary: AttendanceSummary }>;
-    list.sort((x, y) => x.summary.rate - y.summary.rate);
-    return list;
-  }, [filteredRows]);
-
   const attWorst5 = useMemo(() => attAll.slice(0, 5), [attAll]);
 
   const hasAttendanceStats = useMemo(() => attAll.length > 0, [attAll.length]);
@@ -669,7 +775,7 @@ export default function DashboardPage() {
         'coupang_att_full',
         JSON.stringify({
           warehouse: query.warehouse,
-          page: query.page,
+          page: attWorstSourcePage || query.page,
           items: attAll,
         })
       );
@@ -677,6 +783,81 @@ export default function DashboardPage() {
       // ignore
     }
     navigate('/attendance', { replace: false });
+  }
+
+  async function refreshWorstAttendance() {
+    if (!useGas) return;
+    if (!user) return;
+    const source = pickWorstSourceSheet(query.warehouse, availablePages);
+    if (!source) {
+      setAttWorstSourcePage('');
+      setAttAll([]);
+      return;
+    }
+
+    const apiName = isAdmin ? '' : (user?.name || '');
+
+    try {
+      const payload = await gasQuerySheet(query.warehouse, source, apiName);
+      const { headers, rows: gasRows } = gasPayloadToRows(payload, { disableAttendance: true, sheetName: source });
+      const dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
+      const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
+
+      if (!gasRows.length || !dateCols.length) {
+        setAttWorstSourcePage(source);
+        setAttAll([]);
+        return;
+      }
+
+      const exclude = buildExcludeSet();
+      const useAttendanceMap = source.includes('出勤記錄');
+      const attKeySet = useAttendanceMap ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
+
+      const byName = new Map<string, GasRecordRow[]>();
+      gasRows.forEach((r) => {
+        const nm = getNameFromRow(r);
+        if (!nm) return;
+        if (!byName.has(nm)) byName.set(nm, []);
+        byName.get(nm)!.push(r);
+      });
+
+      const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
+      byName.forEach((personRows, nm) => {
+        let expected = 0;
+        let attended = 0;
+
+        for (const row of personRows) {
+          for (const ci of dateCols) {
+            const hk = headers[ci];
+            if (!hk) continue;
+            if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
+            expected += 1;
+
+            if (useAttendanceMap) {
+              const iso = String(headersISO?.[ci] || '').trim();
+              if (iso && attKeySet && attKeySet.has(`${nm}|${iso}`)) attended += 1;
+            } else {
+              if (isActualAttendCell(ci, row)) attended += 1;
+            }
+          }
+        }
+
+        if (!expected) return;
+        const rate = attended / expected;
+        list.push({
+          id: `att_${nm}`,
+          name: nm,
+          summary: { rate, attended, expected, status: statusFromRate(rate) },
+        });
+      });
+
+      list.sort((a, b) => a.summary.rate - b.summary.rate);
+      setAttWorstSourcePage(source);
+      setAttAll(list);
+    } catch {
+      setAttWorstSourcePage(source);
+      setAttAll([]);
+    }
   }
 
   useEffect(() => {
@@ -687,6 +868,14 @@ export default function DashboardPage() {
     refreshPages(query.warehouse);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useGas]);
+
+  useEffect(() => {
+    if (!useGas) return;
+    if (!user) return;
+    if (!availablePages.length) return;
+    void refreshWorstAttendance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useGas, user?.name, isAdmin, query.warehouse, availablePages.join('|')]);
 
   useEffect(() => {
     if (!useGas) return;
