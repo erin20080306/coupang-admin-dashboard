@@ -704,7 +704,8 @@ export default function DashboardPage() {
   );
 
   const [search, setSearch] = useState('');
-  const [attOpen, setAttOpen] = useState(false);
+  const [attWorstOpen, setAttWorstOpen] = useState(false);
+  const [attBestOpen, setAttBestOpen] = useState(false);
 
   const [openFreezePanel, setOpenFreezePanel] = useState(false);
   const [openAttStatPanel, setOpenAttStatPanel] = useState(false);
@@ -1040,7 +1041,8 @@ export default function DashboardPage() {
 
         setResult({ rows: gasRows as any, stats: stat });
         setStatus('success');
-        setAttOpen(false);
+        setAttWorstOpen(false);
+        setAttBestOpen(false);
         setManualFrozenLeft(0);
         setFreezeStart(0);
         setFreezeEnd(0);
@@ -1061,7 +1063,8 @@ export default function DashboardPage() {
       }
       setResult(res);
       setStatus('success');
-      setAttOpen(false);
+      setAttWorstOpen(false);
+      setAttBestOpen(false);
     } catch (e) {
       setStatus('error');
       setError(e instanceof Error ? e.message : '查詢失敗');
@@ -1565,47 +1568,64 @@ export default function DashboardPage() {
             </div>
 
             {!isHoursPage && isAttPage ? (
-              <div className="panel">
-                <div
-                  className="panelTitle"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
-                >
-                  <span>出勤前五位（最差/最好）</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div className="panel">
+                  <div
+                    className="panelTitle"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+                  >
+                    <span>出勤最差前五位</span>
+                    {hasAttendanceStats ? (
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button className="btnGhost" onClick={() => setAttWorstOpen((v) => !v)}>
+                          {attWorstOpen ? '收合' : '點開'}
+                        </button>
+                        <button className="btnGhost" onClick={openAttendanceFullList}>
+                          查看全部
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
                   {hasAttendanceStats ? (
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <button className="btnGhost" onClick={() => setAttOpen((v) => !v)}>
-                        {attOpen ? '收合' : '點開'}
-                      </button>
-                      <button className="btnGhost" onClick={openAttendanceFullList}>
-                        查看全部
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                {hasAttendanceStats ? (
-                  attOpen ? (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                        gap: 14,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 700, marginBottom: 8 }}>最差前五位</div>
-                        <AttendanceCards items={attWorst5} onItemClick={openAttendanceFullList} />
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, marginBottom: 8 }}>最好前五位</div>
-                        <AttendanceCards items={attBest5} onItemClick={openAttendanceFullList} />
-                      </div>
-                    </div>
+                    attWorstOpen ? (
+                      <AttendanceCards items={attWorst5} onItemClick={openAttendanceFullList} />
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看最差前五位</div>
+                    )
                   ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看最差/最好前五位</div>
-                  )
-                ) : (
-                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>本分頁不統計</div>
-                )}
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>本分頁不統計</div>
+                  )}
+                </div>
+
+                <div className="panel">
+                  <div
+                    className="panelTitle"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+                  >
+                    <span>出勤最好前五位</span>
+                    {hasAttendanceStats ? (
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button className="btnGhost" onClick={() => setAttBestOpen((v) => !v)}>
+                          {attBestOpen ? '收合' : '點開'}
+                        </button>
+                        <button className="btnGhost" onClick={openAttendanceFullList}>
+                          查看全部
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {hasAttendanceStats ? (
+                    attBestOpen ? (
+                      <AttendanceCards items={attBest5} onItemClick={openAttendanceFullList} />
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看最好前五位</div>
+                    )
+                  ) : (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>本分頁不統計</div>
+                  )}
+                </div>
               </div>
             ) : null}
           </section>
