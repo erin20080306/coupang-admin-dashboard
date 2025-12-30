@@ -679,7 +679,7 @@ export default function DashboardPage() {
 
   const [availablePages, setAvailablePages] = useState<string[]>(mockPages);
   const [query, setQuery] = useState<QueryParams>({
-    warehouse: mockWarehouses[0],
+    warehouse: (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0],
     page: mockPages[0],
     name: '',
     birthdayOrPhone: '',
@@ -865,9 +865,13 @@ export default function DashboardPage() {
       setAvailablePages(mockPages);
       return;
     }
+    const wk = user?.warehouseKey;
+    if (!isAdmin && wk) {
+      setQuery((s) => (s.warehouse === wk ? s : { ...s, warehouse: wk }));
+    }
     refreshPages(query.warehouse);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useGas]);
+  }, [useGas, isAdmin, user?.warehouseKey]);
 
   useEffect(() => {
     if (!useGas) return;
@@ -978,7 +982,8 @@ export default function DashboardPage() {
   }
 
   function clear() {
-    setQuery({ warehouse: mockWarehouses[0], page: mockPages[0], name: '', birthdayOrPhone: '' });
+    const baseWh = (!isAdmin && useGas && user?.warehouseKey) ? user.warehouseKey : mockWarehouses[0];
+    setQuery({ warehouse: baseWh, page: mockPages[0], name: '', birthdayOrPhone: '' });
     setSearch('');
     setStatus('idle');
     setResult(null);

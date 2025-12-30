@@ -161,7 +161,7 @@ export default function LoginPage() {
 
       if (name === '酷澎' && birthday === '0000') {
         recordLogin(name, birthday);
-        setSession({ name, isAdmin: true });
+        setSession({ name, isAdmin: true, warehouseKey: 'TAO1' });
         navigate('/', { replace: true });
         return;
       }
@@ -177,7 +177,13 @@ export default function LoginPage() {
 
       recordLogin(name, birthday);
 
-      setSession({ name: res.name || name, isAdmin: Boolean(res.isAdmin) });
+      const warehouseKey = (res as any)?.warehouseKey || (res as any)?.whKey || (res as any)?.warehouse || 'TAO1';
+
+      setSession({
+        name: res.name || name,
+        isAdmin: Boolean(res.isAdmin),
+        warehouseKey,
+      });
       navigate('/', { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : '登入失敗';

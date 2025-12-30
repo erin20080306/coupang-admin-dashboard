@@ -1,6 +1,7 @@
 export type AuthUser = {
   name: string;
   isAdmin: boolean;
+  warehouseKey?: string;
 };
 
 const TOKEN_KEY = 'coupang_demo_token';
