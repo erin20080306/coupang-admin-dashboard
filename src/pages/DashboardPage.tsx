@@ -1422,7 +1422,7 @@ export default function DashboardPage() {
         ) : null}
 
         {status === 'success' && stats ? (
-          <section className="grid2">
+          <section className="grid2 grid2Summary">
             <div className="panel">
               <div className="panelTitle">統計摘要</div>
               <div className="kpiRow">

@@ -210,6 +210,10 @@ button {
   gap: 14px;
 }
 
+.grid2Summary {
+  grid-template-columns: 1.25fr 0.75fr;
+}
+
 .kpiRow {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -728,6 +732,10 @@ button {
 
 @media (max-width: 920px) {
   .grid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .grid2Summary {
     grid-template-columns: 1fr;
   }
 }
