@@ -13,6 +13,12 @@ import { exportCsv, exportElementPng, exportExcelHtml } from '../lib/export';
 
 type DisplayRow = PersonRow | GasRecordRow;
 
+const PAGES_CACHE = new Map<string, { ts: number; pages: string[] }>();
+const ATT_KEYSET_CACHE = new Map<string, { ts: number; set: Set<string> }>();
+
+const PAGES_CACHE_MS = 20_000;
+const ATT_KEYSET_CACHE_MS = 5 * 60_000;
+
 function getAttendanceFromRow(r: DisplayRow): AttendanceSummary | undefined {
   if ((r as any)._attendance) return (r as any)._attendance as AttendanceSummary;
   if ((r as any).attendance) return (r as any).attendance as AttendanceSummary;
@@ -487,6 +493,10 @@ async function buildAttendanceKeySet(
   const sheetNames = pickAttendanceSheets(pages);
   if (!sheetNames.length) return new Set();
 
+  const cacheKey = `${warehouse}::${apiName}::${sheetNames.join('|')}`;
+  const hit = ATT_KEYSET_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.ts < ATT_KEYSET_CACHE_MS) return hit.set;
+
   const payloads = await Promise.all(
     sheetNames.map((sn) => gasQuerySheet(warehouse, sn, apiName).catch(() => null))
   );
@@ -520,6 +530,7 @@ async function buildAttendanceKeySet(
     }
   });
 
+  ATT_KEYSET_CACHE.set(cacheKey, { ts: Date.now(), set: out });
   return out;
 }
 
@@ -637,8 +648,9 @@ function buildGasColumns(headers: string[]): ColumnDef<GasRecordRow>[] {
     }));
 
   cols.push({
-    key: '_attendance' as any,
+    key: '_attendanceRate' as any,
     header: '出勤率',
+    sortable: true,
     render: (r: GasRecordRow) => {
       const a = (r as any)._attendance as AttendanceSummary | undefined;
       if (!a) return '';
@@ -823,25 +835,31 @@ export default function DashboardPage() {
 
       const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
       byName.forEach((personRows, nm) => {
-        let expected = 0;
-        let attended = 0;
+        // ✅ 同一人多列時，以「日期」去重，避免 expected 灌水
+        const expectedSet = new Set<string>();
+        const attendedSet = new Set<string>();
 
         for (const row of personRows) {
           for (const ci of dateCols) {
             const hk = headers[ci];
-            if (!hk) continue;
+            if (!hk || !String(hk).trim()) continue;
             if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
-            expected += 1;
 
             if (useAttendanceMap) {
               const iso = String(headersISO?.[ci] || '').trim();
-              if (iso && attKeySet && attKeySet.has(`${nm}|${iso}`)) attended += 1;
+              if (!iso) continue;
+              expectedSet.add(iso);
+              if (attKeySet && attKeySet.has(`${nm}|${iso}`)) attendedSet.add(iso);
             } else {
-              if (isActualAttendCell(ci, row)) attended += 1;
+              const iso = String(headersISO?.[ci] || '').trim() || String(hk || '').trim() || String(ci);
+              expectedSet.add(iso);
+              if (isActualAttendCell(ci, row)) attendedSet.add(iso);
             }
           }
         }
 
+        const expected = expectedSet.size;
+        const attended = attendedSet.size;
         if (!expected) return;
         const rate = attended / expected;
         list.push({
@@ -877,9 +895,15 @@ export default function DashboardPage() {
     if (!useGas) return;
     if (!user) return;
     if (!availablePages.length) return;
-    void refreshWorstAttendance();
+    if (isHoursPage) return;
+    if (!isAttPage) return;
+
+    const t = window.setTimeout(() => {
+      void refreshWorstAttendance();
+    }, 450);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useGas, user?.name, isAdmin, query.warehouse, availablePages.join('|')]);
+  }, [useGas, user?.name, isAdmin, query.warehouse, availablePages.join('|'), isHoursPage, isAttPage]);
 
   useEffect(() => {
     if (!useGas) return;
@@ -905,8 +929,17 @@ export default function DashboardPage() {
       setAvailablePages(mockPages);
       return;
     }
+
+    const hit = PAGES_CACHE.get(warehouse);
+    if (hit && Date.now() - hit.ts < PAGES_CACHE_MS) {
+      const pages = hit.pages;
+      setAvailablePages(pages.length ? pages : mockPages);
+      setQuery((s) => ({ ...s, page: pages.includes(s.page) ? s.page : (pages[0] || s.page) }));
+      return;
+    }
     try {
       const pages = await gasGetSheets(warehouse);
+      PAGES_CACHE.set(warehouse, { ts: Date.now(), pages });
       setAvailablePages(pages.length ? pages : mockPages);
       setQuery((s) => ({ ...s, page: pages[0] || s.page }));
     } catch {
@@ -924,13 +957,43 @@ export default function DashboardPage() {
         const apiName = isAdmin ? '' : (user?.name || '');
         const payload = await gasQuerySheet(query.warehouse, query.page, apiName);
         setGasHeadersISO((payload.headersISO ?? []).map((h) => String(h ?? '')));
-        setGasDateCols(Array.isArray(payload.dateCols) ? payload.dateCols : []);
+        const dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
+        setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
         const { headers, rows: gasRows } = gasPayloadToRows(payload, {
           disableAttendance: isHoursPage,
           sheetName: query.page,
         });
         setGasHeaders(headers);
+
+        // TAO1：出勤率來源在「出勤記錄」分頁，需用出勤映射計算 attended
+        const wh = String(query.warehouse || '').trim().toUpperCase();
+        const isTAO1 = wh === 'TAO1' || wh === 'TA01';
+        const isAttRecordPage = query.page.includes('出勤記錄');
+        if (!isHoursPage && isTAO1 && isAttRecordPage && headers.length && dateCols.length) {
+          const exclude = buildExcludeSet();
+          const attKeySet = await buildAttendanceKeySet(query.warehouse, availablePages, apiName);
+          const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
+          gasRows.forEach((row) => {
+            const nm = getNameFromRow(row);
+            if (!nm) return;
+            let expected = 0;
+            let attended = 0;
+            for (const ci of dateCols) {
+              const hk = headers[ci];
+              if (!hk || !String(hk).trim()) continue;
+              if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
+              const iso = String(headersISO?.[ci] || '').trim();
+              if (!iso) continue;
+              expected += 1;
+              if (attKeySet.has(`${nm}|${iso}`)) attended += 1;
+            }
+            if (!expected) return;
+            const rate = attended / expected;
+            (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
+            (row as any)._attendanceRate = rate;
+          });
+        }
 
         if (!gasRows.length) {
           setStatus('empty');
@@ -1360,7 +1423,8 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   if (!isAdmin && useGas) return;
                   const w = e.target.value;
-                  setQuery((s) => ({ ...s, warehouse: w }));
+                  // ✅ 避免切倉時先用舊分頁觸發一次 doQuery（會造成切倉很慢）
+                  setQuery((s) => ({ ...s, warehouse: w, page: '' }));
                   refreshPages(w);
                 }}
                 disabled={useGas && !isAdmin}
@@ -1497,7 +1561,7 @@ export default function DashboardPage() {
                     const headers = (columnsShown as any[]).map((c) => String(c.header ?? ''));
                     const rows2 = (rowsShown as any[]).map((r) => (columnsShown as any[]).map((c) => {
                       const k = c.key;
-                      if (k === '_attendance') {
+                      if (k === '_attendanceRate') {
                         const a = (r as any)._attendance;
                         if (!a) return '';
                         return `${Math.round(a.rate * 100)}% (${a.attended}/${a.expected})`;
@@ -1516,7 +1580,7 @@ export default function DashboardPage() {
                     const headers = (columnsShown as any[]).map((c) => String(c.header ?? ''));
                     const rows2 = (rowsShown as any[]).map((r) => (columnsShown as any[]).map((c) => {
                       const k = c.key;
-                      if (k === '_attendance') {
+                      if (k === '_attendanceRate') {
                         const a = (r as any)._attendance;
                         if (!a) return '';
                         return `${Math.round(a.rate * 100)}% (${a.attended}/${a.expected})`;

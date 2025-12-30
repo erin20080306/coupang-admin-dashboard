@@ -4,6 +4,7 @@ import type { GasPayload, GasRow } from './gasApi';
 export type GasRecordRow = {
   id: string;
   _attendance?: AttendanceSummary;
+  _attendanceRate?: number;
   _bg?: string[];
   _fc?: string[];
   _att?: number[];
@@ -150,7 +151,10 @@ export function gasPayloadToRows(
 
       if (!options?.disableAttendance) {
         const att = calcAttendance(headers, payload.dateCols, r, options);
-        if (att) obj._attendance = att;
+        if (att) {
+          obj._attendance = att;
+          obj._attendanceRate = att.rate;
+        }
       }
 
       if (nameIdx >= 0) {
