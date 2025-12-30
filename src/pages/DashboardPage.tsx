@@ -780,6 +780,12 @@ export default function DashboardPage() {
 
   const attWorst5 = useMemo(() => attAll.slice(0, 5), [attAll]);
 
+  const attBest5 = useMemo(() => {
+    if (!attAll.length) return [] as Array<{ id: string; name: string; summary: AttendanceSummary }>;
+    const start = Math.max(0, attAll.length - 5);
+    return attAll.slice(start).reverse();
+  }, [attAll]);
+
   const hasAttendanceStats = useMemo(() => attAll.length > 0, [attAll.length]);
 
   function openAttendanceFullList() {
@@ -1564,7 +1570,7 @@ export default function DashboardPage() {
                   className="panelTitle"
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
                 >
-                  <span>出勤最差前五位</span>
+                  <span>出勤前五位（最差/最好）</span>
                   {hasAttendanceStats ? (
                     <div style={{ display: 'flex', gap: 10 }}>
                       <button className="btnGhost" onClick={() => setAttOpen((v) => !v)}>
@@ -1578,9 +1584,24 @@ export default function DashboardPage() {
                 </div>
                 {hasAttendanceStats ? (
                   attOpen ? (
-                    <AttendanceCards items={attWorst5} onItemClick={openAttendanceFullList} />
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                        gap: 14,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700, marginBottom: 8 }}>最差前五位</div>
+                        <AttendanceCards items={attWorst5} onItemClick={openAttendanceFullList} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, marginBottom: 8 }}>最好前五位</div>
+                        <AttendanceCards items={attBest5} onItemClick={openAttendanceFullList} />
+                      </div>
+                    </div>
                   ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看最差前五位</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看最差/最好前五位</div>
                   )
                 ) : (
                   <div style={{ color: 'var(--muted)', fontSize: 13 }}>本分頁不統計</div>
