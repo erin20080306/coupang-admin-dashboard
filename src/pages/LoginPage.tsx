@@ -264,7 +264,8 @@ export default function LoginPage() {
                   <button
                     type="button"
                     className="btnGhost"
-                    onClick={() => {
+                    onMouseDown={(e) => {
+                      e.preventDefault();
                       setForm({ name: remember.name, birthday: remember.birthday });
                       setFocused(null);
                     }}
@@ -274,7 +275,8 @@ export default function LoginPage() {
                   <button
                     type="button"
                     className="btnGhost"
-                    onClick={() => {
+                    onMouseDown={(e) => {
+                      e.preventDefault();
                       try {
                         localStorage.removeItem(LOGIN_REMEMBER_KEY);
                       } catch {
@@ -295,7 +297,8 @@ export default function LoginPage() {
                       key={`${h.name}_${h.birthday}_${h.ts}`}
                       type="button"
                       className="btnGhost"
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        e.preventDefault();
                         setForm({ name: h.name, birthday: h.birthday });
                         setFocused(null);
                       }}
