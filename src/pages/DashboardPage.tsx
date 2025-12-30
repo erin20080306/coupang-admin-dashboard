@@ -918,6 +918,51 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!useGas) return;
+    if (!query.page.includes('班表')) return;
+    if (!attAll.length) return;
+
+    setResult((prev) => {
+      if (!prev?.rows || !(prev.rows as any[]).length) return prev;
+
+      const map = new Map<string, AttendanceSummary>();
+      attAll.forEach((x) => {
+        const nm = String(x?.name || '').trim();
+        if (!nm) return;
+        if (x?.summary) map.set(nm, x.summary);
+      });
+      if (!map.size) return prev;
+
+      let changed = false;
+      const newRows = (prev.rows as any[]).map((r) => {
+        if ((r as any)?._attendance) return r;
+        const nm = getNameFromRow(r as any);
+        const s = map.get(nm);
+        if (!s) return r;
+        changed = true;
+        return { ...r, _attendance: s, _attendanceRate: s.rate };
+      });
+
+      if (!changed) return prev;
+
+      const stat = newRows.reduce(
+        (acc, r) => {
+          acc.total += 1;
+          const a = (r as any)._attendance as AttendanceSummary | undefined;
+          if (a) {
+            acc.attended += a.attended;
+            acc.absent += Math.max(0, a.expected - a.attended);
+          }
+          return acc;
+        },
+        { total: 0, attended: 0, late: 0, absent: 0 }
+      );
+
+      return { ...prev, rows: newRows as any, stats: stat };
+    });
+  }, [useGas, query.page, attAll]);
+
+  useEffect(() => {
+    if (!useGas) return;
     if (!user) return;
     if (status === 'loading') return;
     if (!query.page) return;
