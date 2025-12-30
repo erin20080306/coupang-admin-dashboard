@@ -112,6 +112,8 @@ function LeaveStatPanel({
   const isSchedule = sheetName.includes('班表');
   const isRecord = sheetName.includes('出勤記錄');
 
+  const [open, setOpen] = useState(false);
+
   const [mode, setMode] = useState<'single' | 'all'>('single');
   const [singleName, setSingleName] = useState('');
   const [leaveFilter, setLeaveFilter] = useState('');
@@ -254,120 +256,130 @@ function LeaveStatPanel({
     <section className="panel">
       <div className="panelTitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <span>假別統計</span>
-        {isAdmin ? (
-          <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {isAdmin ? (
+            <>
+              <button
+                className="btnGhost"
+                onClick={() => setMode('single')}
+                aria-pressed={effectiveMode === 'single'}
+              >
+                單人
+              </button>
+              <button
+                className="btnGhost"
+                onClick={() => setMode('all')}
+                aria-pressed={effectiveMode === 'all'}
+              >
+                全員
+              </button>
+            </>
+          ) : null}
+          <button className="btnGhost" onClick={() => setOpen((v) => !v)}>
+            {open ? '收合' : '點開'}
+          </button>
+        </div>
+      </div>
+
+      {!open ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看假別統計</div>
+      ) : (
+        <>
+          {effectiveMode === 'single' ? (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+              {isAdmin ? (
+                <label className="filter" style={{ minWidth: 220 }}>
+                  <span>姓名</span>
+                  <input
+                    value={singleName}
+                    onChange={(e) => setSingleName(e.target.value)}
+                    placeholder="輸入姓名（留空=依搜尋結果）"
+                  />
+                </label>
+              ) : null}
+
+              <label className="filter" style={{ minWidth: 220 }}>
+                <span>假別</span>
+                <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
+                  <option value="">全部</option>
+                  {leaveOptions.map((x) => (
+                    <option key={x} value={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+              <label className="filter" style={{ minWidth: 220 }}>
+                <span>假別</span>
+                <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
+                  <option value="">全部</option>
+                  {leaveOptions.map((x) => (
+                    <option key={x} value={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
             <button
               className="btnGhost"
-              onClick={() => setMode('single')}
-              aria-pressed={effectiveMode === 'single'}
+              onClick={() => exportExcelHtml(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
+              disabled={!dataShown.length}
             >
-              單人
+              Excel
             </button>
             <button
               className="btnGhost"
-              onClick={() => setMode('all')}
-              aria-pressed={effectiveMode === 'all'}
+              onClick={() => exportCsv(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
+              disabled={!dataShown.length}
             >
-              全員
+              CSV
+            </button>
+            <button
+              className="btnGhost"
+              onClick={() => {
+                if (!wrapRef.current) return;
+                exportElementPng(wrapRef.current, exportBase);
+              }}
+              disabled={!dataShown.length}
+            >
+              PNG
             </button>
           </div>
-        ) : null}
-      </div>
 
-      {effectiveMode === 'single' ? (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-          {isAdmin ? (
-            <label className="filter" style={{ minWidth: 220 }}>
-              <span>姓名</span>
-              <input
-                value={singleName}
-                onChange={(e) => setSingleName(e.target.value)}
-                placeholder="輸入姓名（留空=依搜尋結果）"
-              />
-            </label>
-          ) : null}
-
-          <label className="filter" style={{ minWidth: 220 }}>
-            <span>假別</span>
-            <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
-              <option value="">全部</option>
-              {leaveOptions.map((x) => (
-                <option key={x} value={x}>{x}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-          <label className="filter" style={{ minWidth: 220 }}>
-            <span>假別</span>
-            <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
-              <option value="">全部</option>
-              {leaveOptions.map((x) => (
-                <option key={x} value={x}>{x}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
-        <button
-          className="btnGhost"
-          onClick={() => exportExcelHtml(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
-          disabled={!dataShown.length}
-        >
-          Excel
-        </button>
-        <button
-          className="btnGhost"
-          onClick={() => exportCsv(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
-          disabled={!dataShown.length}
-        >
-          CSV
-        </button>
-        <button
-          className="btnGhost"
-          onClick={() => {
-            if (!wrapRef.current) return;
-            exportElementPng(wrapRef.current, exportBase);
-          }}
-          disabled={!dataShown.length}
-        >
-          PNG
-        </button>
-      </div>
-
-      {dataShown.length ? (
-        <div className="tableWrap" ref={wrapRef}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>部門</th>
-                <th>班別</th>
-                <th>姓名</th>
-                <th>假別</th>
-                <th>日期</th>
-                <th>天數</th>
-              </tr>
-            </thead>
-            <tbody>
-              {exportRows.map((r) => (
-                <tr key={`${r[2]}_${r[3]}`}
-                  >
-                  <td>{r[0]}</td>
-                  <td>{r[1]}</td>
-                  <td>{r[2]}</td>
-                  <td>{r[3]}</td>
-                  <td style={{ maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r[4]}</td>
-                  <td>{r[5]}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>本分頁沒有可統計的假別資料。</div>
+          {dataShown.length ? (
+            <div className="tableWrap" ref={wrapRef}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>部門</th>
+                    <th>班別</th>
+                    <th>姓名</th>
+                    <th>假別</th>
+                    <th>日期</th>
+                    <th>天數</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exportRows.map((r) => (
+                    <tr key={`${r[2]}_${r[3]}`}>
+                      <td>{r[0]}</td>
+                      <td>{r[1]}</td>
+                      <td>{r[2]}</td>
+                      <td>{r[3]}</td>
+                      <td style={{ maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r[4]}</td>
+                      <td>{r[5]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>本分頁沒有可統計的假別資料。</div>
+          )}
+        </>
       )}
     </section>
   );
@@ -710,6 +722,11 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const [attOpen, setAttOpen] = useState(false);
 
+  const [openFreezePanel, setOpenFreezePanel] = useState(false);
+  const [openAttStatPanel, setOpenAttStatPanel] = useState(false);
+  const [openAttAllPanel, setOpenAttAllPanel] = useState(false);
+  const [openLeaveFilterPanel, setOpenLeaveFilterPanel] = useState(false);
+
   const rows: DisplayRow[] = (result?.rows as unknown as DisplayRow[]) ?? [];
   const stats = result?.stats;
 
@@ -965,6 +982,29 @@ export default function DashboardPage() {
           sheetName: query.page,
         });
         setGasHeaders(headers);
+
+        // ✅ 保險：若是班表分頁但 _attendance 沒算出來（例如後端欄位不完整），在前端補算一次
+        if (!isHoursPage && query.page.includes('班表') && headers.length && dateCols.length) {
+          const exclude = buildExcludeSet();
+          gasRows.forEach((row) => {
+            if ((row as any)._attendance) return;
+            const attArr = (row as any)._att as number[] | undefined;
+            if (!Array.isArray(attArr) || !attArr.length) return;
+            let expected = 0;
+            let attended = 0;
+            for (const ci of dateCols) {
+              const hk = headers[ci];
+              if (!hk || !String(hk).trim()) continue;
+              if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
+              expected += 1;
+              if (attArr[ci]) attended += 1;
+            }
+            if (!expected) return;
+            const rate = attended / expected;
+            (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
+            (row as any)._attendanceRate = rate;
+          });
+        }
 
         // TAO1：出勤率來源在「出勤記錄」分頁，需用出勤映射計算 attended
         const wh = String(query.warehouse || '').trim().toUpperCase();
@@ -1636,6 +1676,43 @@ export default function DashboardPage() {
         ) : null}
 
         {status === 'success' && useGas ? (
+          <section className="panel">
+            <div className="panelTitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span>凍結欄位</span>
+              <button className="btnGhost" onClick={() => setOpenFreezePanel((v) => !v)}>
+                {openFreezePanel ? '收合' : '點開'}
+              </button>
+            </div>
+            {!openFreezePanel ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可設定凍結欄位</div>
+            ) : (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <label className="filter" style={{ minWidth: 240 }}>
+                  <span>起始欄</span>
+                  <select value={freezeStart} onChange={(e) => setFreezeStart(Number(e.target.value))}>
+                    {gasHeaders.map((t, i) => (
+                      <option key={i} value={i}>{i + 1}. {t || ''}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="filter" style={{ minWidth: 240 }}>
+                  <span>訖欄</span>
+                  <select value={freezeEnd} onChange={(e) => setFreezeEnd(Number(e.target.value))}>
+                    {gasHeaders.map((t, i) => (
+                      <option key={i} value={i}>{i + 1}. {t || ''}</option>
+                    ))}
+                  </select>
+                </label>
+                <button className="btnPrimary" onClick={applyFreezeRange}>套用凍結</button>
+                <button className="btnSecondary" onClick={resetFreezeRange}>解除凍結</button>
+                <button className="btnGhost" onClick={restoreSheetFreeze}>依試算表</button>
+                <div style={{ color: 'var(--muted)', fontSize: 13, alignSelf: 'center' }}>目前凍結：{effectiveFrozenLeft} 欄</div>
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {status === 'success' && useGas ? (
           <LeaveStatPanel
             headers={gasHeaders}
             headersISO={gasHeadersISO}
@@ -1650,20 +1727,29 @@ export default function DashboardPage() {
 
         {status === 'success' && useGas && query.page.includes('班表') ? (
           <section className="panel">
-            <div className="panelTitle">出勤率統計</div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
-              <button
-                className="btnGhost"
-                onClick={() => {
-                  let meta: any = null;
-                  try { meta = JSON.parse(sessionStorage.getItem('coupang_att_single_meta') || 'null'); } catch {}
-                  const base = [meta?.dept, meta?.shift, meta?.name, meta?.sheet, '單人出勤率統計'].filter(Boolean).join('_') || '單人出勤率統計';
-                  exportExcelHtml(base, ['姓名', '部門', '班別', '統計範圍', '應到天數', '實到天數', '未到天數', '出勤率'], attSingleBuilt);
-                }}
-                disabled={!attSingleBuilt.length}
-              >
-                Excel
+            <div className="panelTitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span>出勤率統計</span>
+              <button className="btnGhost" onClick={() => setOpenAttStatPanel((v) => !v)}>
+                {openAttStatPanel ? '收合' : '點開'}
               </button>
+            </div>
+            {!openAttStatPanel ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可查看/匯出出勤率統計</div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
+                  <button
+                    className="btnGhost"
+                    onClick={() => {
+                      let meta: any = null;
+                      try { meta = JSON.parse(sessionStorage.getItem('coupang_att_single_meta') || 'null'); } catch {}
+                      const base = [meta?.dept, meta?.shift, meta?.name, meta?.sheet, '單人出勤率統計'].filter(Boolean).join('_') || '單人出勤率統計';
+                      exportExcelHtml(base, ['姓名', '部門', '班別', '統計範圍', '應到天數', '實到天數', '未到天數', '出勤率'], attSingleBuilt);
+                    }}
+                    disabled={!attSingleBuilt.length}
+                  >
+                    Excel
+                  </button>
               <button
                 className="btnGhost"
                 onClick={() => {
@@ -1689,8 +1775,8 @@ export default function DashboardPage() {
               >
                 PNG
               </button>
-            </div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
               {isAdmin ? (
                 <label className="filter" style={{ minWidth: 220 }}>
                   <span>姓名</span>
@@ -1762,6 +1848,8 @@ export default function DashboardPage() {
             ) : (
               <div style={{ color: 'var(--muted)', fontSize: 13 }}>—</div>
             )}
+              </>
+            )}
           </section>
         ) : null}
 
@@ -1769,118 +1857,109 @@ export default function DashboardPage() {
           <section className="panel">
             <div className="panelTitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <span>全員出勤率統計</span>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button className="btnPrimary" onClick={buildAllAttStat}>建立</button>
-                <button className="btnSecondary" onClick={clearAllAttStat}>清除</button>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button className="btnGhost" onClick={() => setOpenAttAllPanel((v) => !v)}>
+                  {openAttAllPanel ? '收合' : '點開'}
+                </button>
+                <button className="btnPrimary" onClick={buildAllAttStat} disabled={!openAttAllPanel}>建立</button>
+                <button className="btnSecondary" onClick={clearAllAttStat} disabled={!openAttAllPanel}>清除</button>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
-              <button
-                className="btnGhost"
-                onClick={() => exportExcelHtml('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuilt)}
-                disabled={!attAllBuilt.length}
-              >
-                Excel
-              </button>
-              <button
-                className="btnGhost"
-                onClick={() => exportCsv('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuilt)}
-                disabled={!attAllBuilt.length}
-              >
-                CSV
-              </button>
-            </div>
-
-            {attAllBuilt.length ? (
-              <div className="tableWrap" ref={attAllWrapRef}>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>部門</th>
-                      <th>班別</th>
-                      <th>姓名</th>
-                      <th>應到天數</th>
-                      <th>實到天數</th>
-                      <th>出勤率</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attAllBuilt.map((r, i) => (
-                      <tr key={i}>
-                        <td>{r[0]}</td>
-                        <td>{r[1]}</td>
-                        <td>{r[2]}</td>
-                        <td>{r[3]}</td>
-                        <td>{r[4]}</td>
-                        <td>{r[5]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {!openAttAllPanel ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可建立/匯出全員出勤率統計</div>
             ) : (
-              <div style={{ color: 'var(--muted)', fontSize: 13 }}>—</div>
+              <>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
+                  <button
+                    className="btnGhost"
+                    onClick={() => exportExcelHtml('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuilt)}
+                    disabled={!attAllBuilt.length}
+                  >
+                    Excel
+                  </button>
+                  <button
+                    className="btnGhost"
+                    onClick={() => exportCsv('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuilt)}
+                    disabled={!attAllBuilt.length}
+                  >
+                    CSV
+                  </button>
+                </div>
+
+                {attAllBuilt.length ? (
+                  <div className="tableWrap" ref={attAllWrapRef}>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>部門</th>
+                          <th>班別</th>
+                          <th>姓名</th>
+                          <th>應到天數</th>
+                          <th>實到天數</th>
+                          <th>出勤率</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attAllBuilt.map((r, i) => (
+                          <tr key={i}>
+                            <td>{r[0]}</td>
+                            <td>{r[1]}</td>
+                            <td>{r[2]}</td>
+                            <td>{r[3]}</td>
+                            <td>{r[4]}</td>
+                            <td>{r[5]}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>—</div>
+                )}
+              </>
             )}
           </section>
         ) : null}
 
         {status === 'success' && useGas && (query.page.includes('班表') || query.page.includes('出勤記錄')) ? (
           <section className="panel">
-            <div className="panelTitle">單人假別欄位篩選</div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {isAdmin ? (
-                <label className="filter" style={{ minWidth: 220 }}>
-                  <span>姓名</span>
-                  <input
-                    value={leaveName}
-                    onChange={(e) => setLeaveName(e.target.value)}
-                    placeholder="輸入姓名（留空=依搜尋結果）"
-                  />
-                </label>
-              ) : null}
-              <label className="filter" style={{ minWidth: 240 }}>
-                <span>假別</span>
-                <select value={leaveTag} onChange={(e) => setLeaveTag(e.target.value)}>
-                  <option value="">全部日期</option>
-                  {leaveOptions.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </label>
-              <button className="btnSecondary" onClick={() => setLeaveTag('')}>清除</button>
-              <div style={{ color: 'var(--muted)', fontSize: 13, alignSelf: 'center' }}>
-                {leaveFilterMode === 'matrix' ? '班表：依假別顯示/隱藏日期欄' : '出勤記錄：依假別列式過濾'}
-              </div>
+            <div className="panelTitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span>單人假別欄位篩選</span>
+              <button className="btnGhost" onClick={() => setOpenLeaveFilterPanel((v) => !v)}>
+                {openLeaveFilterPanel ? '收合' : '點開'}
+              </button>
             </div>
-          </section>
-        ) : null}
 
-        {status === 'success' && useGas ? (
-          <section className="panel">
-            <div className="panelTitle">凍結欄位</div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <label className="filter" style={{ minWidth: 240 }}>
-                <span>起始欄</span>
-                <select value={freezeStart} onChange={(e) => setFreezeStart(Number(e.target.value))}>
-                  {gasHeaders.map((t, i) => (
-                    <option key={i} value={i}>{i + 1}. {t || ''}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="filter" style={{ minWidth: 240 }}>
-                <span>訖欄</span>
-                <select value={freezeEnd} onChange={(e) => setFreezeEnd(Number(e.target.value))}>
-                  {gasHeaders.map((t, i) => (
-                    <option key={i} value={i}>{i + 1}. {t || ''}</option>
-                  ))}
-                </select>
-              </label>
-              <button className="btnPrimary" onClick={applyFreezeRange}>套用凍結</button>
-              <button className="btnSecondary" onClick={resetFreezeRange}>解除凍結</button>
-              <button className="btnGhost" onClick={restoreSheetFreeze}>依試算表</button>
-              <div style={{ color: 'var(--muted)', fontSize: 13, alignSelf: 'center' }}>目前凍結：{effectiveFrozenLeft} 欄</div>
-            </div>
+            {!openLeaveFilterPanel ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>點開即可依假別過濾/隱藏日期欄</div>
+            ) : (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {isAdmin ? (
+                  <label className="filter" style={{ minWidth: 220 }}>
+                    <span>姓名</span>
+                    <input
+                      value={leaveName}
+                      onChange={(e) => setLeaveName(e.target.value)}
+                      placeholder="輸入姓名（留空=依搜尋結果）"
+                    />
+                  </label>
+                ) : null}
+                <label className="filter" style={{ minWidth: 240 }}>
+                  <span>假別</span>
+                  <select value={leaveTag} onChange={(e) => setLeaveTag(e.target.value)}>
+                    <option value="">全部日期</option>
+                    {leaveOptions.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </label>
+                <button className="btnSecondary" onClick={() => setLeaveTag('')}>清除</button>
+                <div style={{ color: 'var(--muted)', fontSize: 13, alignSelf: 'center' }}>
+                  {leaveFilterMode === 'matrix' ? '班表：依假別顯示/隱藏日期欄' : '出勤記錄：依假別列式過濾'}
+                </div>
+              </div>
+            )}
           </section>
         ) : null}
 

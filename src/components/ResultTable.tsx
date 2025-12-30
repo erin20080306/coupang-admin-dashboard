@@ -12,6 +12,10 @@ export type ColumnDef<T> = {
 };
 
 function cmp(a: unknown, b: unknown): number {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  const an = typeof a === 'string' && a.trim() !== '' ? Number(a) : (typeof a === 'number' ? a : NaN);
+  const bn = typeof b === 'string' && b.trim() !== '' ? Number(b) : (typeof b === 'number' ? b : NaN);
+  if (!Number.isNaN(an) && !Number.isNaN(bn)) return an - bn;
   const ax = typeof a === 'string' ? a : String(a ?? '');
   const bx = typeof b === 'string' ? b : String(b ?? '');
   return ax.localeCompare(bx, 'zh-Hant', { numeric: true, sensitivity: 'base' });
