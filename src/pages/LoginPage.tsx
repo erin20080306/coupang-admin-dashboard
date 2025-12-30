@@ -234,14 +234,14 @@ export default function LoginPage() {
               <div className="loginCardTitle">登入</div>
             </div>
 
-            <form className="loginForm" onSubmit={onSubmit}>
+            <form className="loginForm" onSubmit={onSubmit} autoComplete="off">
               <label className="field">
                 <span>姓名</span>
                 <input
                   value={form.name}
                   onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
                   placeholder="例如：王小明"
-                  autoComplete="name"
+                  autoComplete="off"
                   onFocus={() => setFocused('name')}
                   onBlur={() => setTimeout(() => setFocused(null), 120)}
                 />
@@ -253,7 +253,7 @@ export default function LoginPage() {
                   value={form.birthday}
                   onChange={(e) => setForm((s) => ({ ...s, birthday: e.target.value }))}
                   placeholder="例如：810101"
-                  autoComplete="bday"
+                  autoComplete="new-password"
                   onFocus={() => setFocused('birthday')}
                   onBlur={() => setTimeout(() => setFocused(null), 120)}
                 />
