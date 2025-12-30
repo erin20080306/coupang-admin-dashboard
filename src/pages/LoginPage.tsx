@@ -50,6 +50,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<LoginHistoryItem[]>([]);
+  const [remember, setRemember] = useState<LoginHistoryItem | null>(null);
   const [focused, setFocused] = useState<'name' | 'birthday' | null>(null);
   const canSubmit = useMemo(() => form.name.trim() && form.birthday.trim(), [form]);
 
@@ -65,12 +66,18 @@ export default function LoginPage() {
     setHistory(list);
     try {
       const raw = localStorage.getItem(LOGIN_REMEMBER_KEY);
-      if (!raw) return;
-      const obj = JSON.parse(raw) as { ts?: number };
-      const ts = Number(obj?.ts || 0);
-      if (!ts || Date.now() - ts > LOGIN_REMEMBER_TTL_MS) {
-        localStorage.removeItem(LOGIN_REMEMBER_KEY);
+      if (!raw) {
+        setRemember(null);
+        return;
       }
+      const obj = JSON.parse(raw) as LoginHistoryItem;
+      const ts = Number(obj?.ts || 0);
+      if (!ts || Date.now() - ts > LOGIN_REMEMBER_TTL_MS || !obj?.name || !obj?.birthday) {
+        localStorage.removeItem(LOGIN_REMEMBER_KEY);
+        setRemember(null);
+        return;
+      }
+      setRemember({ name: String(obj.name || ''), birthday: String(obj.birthday || ''), ts });
     } catch {
       // ignore
     }
@@ -84,6 +91,8 @@ export default function LoginPage() {
     } catch {
       // ignore
     }
+
+    setRemember(item);
 
     setHistory((prev) => {
       const filtered = prev.filter((x) => !(x.name === name && x.birthday === birthday));
@@ -249,6 +258,35 @@ export default function LoginPage() {
                   onBlur={() => setTimeout(() => setFocused(null), 120)}
                 />
               </label>
+
+              {remember ? (
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btnGhost"
+                    onClick={() => {
+                      setForm({ name: remember.name, birthday: remember.birthday });
+                      setFocused(null);
+                    }}
+                  >
+                    當前設備記憶密碼：{remember.name} / {remember.birthday}
+                  </button>
+                  <button
+                    type="button"
+                    className="btnGhost"
+                    onClick={() => {
+                      try {
+                        localStorage.removeItem(LOGIN_REMEMBER_KEY);
+                      } catch {
+                        // ignore
+                      }
+                      setRemember(null);
+                    }}
+                  >
+                    清除
+                  </button>
+                </div>
+              ) : null}
 
               {showHistory ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
