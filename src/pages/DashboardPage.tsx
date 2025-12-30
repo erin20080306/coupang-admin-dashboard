@@ -856,7 +856,8 @@ export default function DashboardPage() {
             if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
 
             if (useAttendanceMap) {
-              const iso = String(headersISO?.[ci] || '').trim();
+              let iso = String(headersISO?.[ci] || '').trim();
+              if (!iso) iso = guessISOFromText(String(hk || ''));
               if (!iso) continue;
               expectedSet.add(iso);
               if (attKeySet && attKeySet.has(`${nm}|${iso}`)) attendedSet.add(iso);
@@ -1018,7 +1019,8 @@ export default function DashboardPage() {
               if (!hk || !String(hk).trim()) continue;
               if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
 
-              const iso = String(headersISO?.[ci] || '').trim();
+              let iso = String(headersISO?.[ci] || '').trim();
+              if (!iso) iso = guessISOFromText(String(hk || ''));
               if (!iso) continue;
               expected += 1;
 
@@ -1297,7 +1299,8 @@ export default function DashboardPage() {
           const hk = gasHeaders[ci];
           if (!hk || !String(hk).trim()) return;
           if (!isShouldAttendCell((row as any)[hk], exclude)) return;
-          const iso = String(gasHeadersISO?.[ci] || '').trim();
+          let iso = String(gasHeadersISO?.[ci] || '').trim();
+          if (!iso) iso = guessISOFromText(String(hk || ''));
           if (!iso) return;
           shouldDays += 1;
           if (isTAO1 && attKeySet) {
@@ -1391,7 +1394,8 @@ export default function DashboardPage() {
           const hk = gasHeaders[ci];
           if (!hk || !String(hk).trim()) return;
           if (!isShouldAttendCell((row as any)[hk], exclude)) return;
-          const iso = String(gasHeadersISO?.[ci] || '').trim();
+          let iso = String(gasHeadersISO?.[ci] || '').trim();
+          if (!iso) iso = guessISOFromText(String(hk || ''));
           if (!iso) return;
           shouldDays += 1;
           if (isTAO1 && attKeySet) {
