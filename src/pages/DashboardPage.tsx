@@ -986,7 +986,23 @@ export default function DashboardPage() {
 
           let attKeySet: Set<string> | null = null;
           if (isTAO1) {
-            attKeySet = await buildAttendanceKeySet(query.warehouse, availablePages, apiName);
+            let pagesForAtt = availablePages;
+            if (!Array.isArray(pagesForAtt) || !pagesForAtt.length) {
+              const hit = PAGES_CACHE.get(query.warehouse);
+              if (hit && Date.now() - hit.ts < PAGES_CACHE_MS) {
+                pagesForAtt = hit.pages;
+              } else {
+                try {
+                  const pages = await gasGetSheets(query.warehouse);
+                  PAGES_CACHE.set(query.warehouse, { ts: Date.now(), pages });
+                  pagesForAtt = pages;
+                  setAvailablePages(pages.length ? pages : mockPages);
+                } catch {
+                  pagesForAtt = availablePages;
+                }
+              }
+            }
+            attKeySet = await buildAttendanceKeySet(query.warehouse, pagesForAtt, apiName);
           }
 
           gasRows.forEach((row) => {
