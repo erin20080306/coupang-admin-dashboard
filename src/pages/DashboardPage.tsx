@@ -404,39 +404,22 @@ function tokenizeCell(raw: unknown): string[] {
     .filter(Boolean);
 }
 
-function buildExcludeSet(): Set<string> {
+function buildExcludeForAttRateSet(): Set<string> {
   return new Set<string>([
     '休',
     '休假',
-    '公休',
+    '休假日',
     '例',
-    '國',
-    '休加',
-    '特休',
-    '病假',
-    '病',
-    '上休（病）',
-    '下休（病）',
-    '事假',
-    '事',
-    '上休（事）',
-    '下休（事）',
-    '喪假',
-    '婚假',
-    '產假',
-    '育嬰',
-    '生理',
-    '生理假',
-    '上休（生理）',
-    '下休（生理）',
-    '曠',
-    '上休（曠）',
-    '下休（曠）',
-    '歲時祭儀假',
-    '公假',
-    'OFF',
-    'off',
+    '例假',
+    '例休',
+    '例假日',
+    '調任',
+    '調倉',
     '離',
+    '未',
+    '轉正',
+    '颱風',
+    '公假',
   ]);
 }
 
@@ -460,8 +443,9 @@ function pickWorstSourceSheet(warehouse: string, pages: string[]): string {
 
   if (wh === 'TAO1' || wh === 'TA01') {
     return (
-      pickFirst((p) => p.includes('出勤記錄')) ||
       pickFirst((p) => p.includes('班表')) ||
+      pickFirst((p) => p.includes('出勤紀律')) ||
+      pickFirst((p) => p.includes('出勤記錄')) ||
       pickFirst((p) => p.includes('出勤')) ||
       list[0] ||
       ''
@@ -479,7 +463,7 @@ function pickWorstSourceSheet(warehouse: string, pages: string[]): string {
 
 function pickAttendanceSheets(pages: string[]): string[] {
   const list = Array.isArray(pages) ? pages : [];
-  const keys = ['出勤時數', '出勤時間', '出勤備份'];
+  const keys = ['出勤紀律', '出勤記錄', '出勤時數', '出勤時間', '出勤備份'];
   return list.filter((p) => keys.some((k) => String(p || '').includes(k)));
 }
 
@@ -715,7 +699,7 @@ export default function DashboardPage() {
 
   const isHoursPage = useMemo(() => query.page.trim() === '出勤時數', [query.page]);
   const isAttPage = useMemo(
-    () => query.page.includes('班表') || query.page.includes('出勤記錄'),
+    () => query.page.includes('班表') || query.page.includes('出勤記錄') || query.page.includes('出勤紀律'),
     [query.page]
   );
 
@@ -838,9 +822,11 @@ export default function DashboardPage() {
         return;
       }
 
-      const exclude = buildExcludeSet();
-      const useAttendanceMap = source.includes('出勤記錄');
-      const attKeySet = useAttendanceMap ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
+      const exclude = buildExcludeForAttRateSet();
+      const wh = normalizeWarehouseKey(query.warehouse);
+      const isTAO1 = wh === 'TAO1' || wh === 'TA01';
+      const attKeySet = isTAO1 ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
+      const useAttendanceMap = Boolean(isTAO1 && attKeySet && attKeySet.size);
 
       const byName = new Map<string, GasRecordRow[]>();
       gasRows.forEach((r) => {
@@ -983,51 +969,43 @@ export default function DashboardPage() {
         });
         setGasHeaders(headers);
 
-        // ✅ 保險：若是班表分頁但 _attendance 沒算出來（例如後端欄位不完整），在前端補算一次
-        if (!isHoursPage && query.page.includes('班表') && headers.length && dateCols.length) {
-          const exclude = buildExcludeSet();
-          gasRows.forEach((row) => {
-            if ((row as any)._attendance) return;
-            const attArr = (row as any)._att as number[] | undefined;
-            if (!Array.isArray(attArr) || !attArr.length) return;
-            let expected = 0;
-            let attended = 0;
-            for (const ci of dateCols) {
-              const hk = headers[ci];
-              if (!hk || !String(hk).trim()) continue;
-              if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
-              expected += 1;
-              if (attArr[ci]) attended += 1;
-            }
-            if (!expected) return;
-            const rate = attended / expected;
-            (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
-            (row as any)._attendanceRate = rate;
-          });
-        }
-
-        // TAO1：出勤率來源在「出勤記錄」分頁，需用出勤映射計算 attended
         const wh = String(query.warehouse || '').trim().toUpperCase();
         const isTAO1 = wh === 'TAO1' || wh === 'TA01';
-        const isAttRecordPage = query.page.includes('出勤記錄');
-        if (!isHoursPage && isTAO1 && isAttRecordPage && headers.length && dateCols.length) {
-          const exclude = buildExcludeSet();
-          const attKeySet = await buildAttendanceKeySet(query.warehouse, availablePages, apiName);
+        const isSchedulePage = query.page.includes('班表');
+
+        if (!isHoursPage && isSchedulePage && headers.length && dateCols.length) {
+          const exclude = buildExcludeForAttRateSet();
           const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
+
+          let attKeySet: Set<string> | null = null;
+          if (isTAO1) {
+            attKeySet = await buildAttendanceKeySet(query.warehouse, availablePages, apiName);
+          }
+
           gasRows.forEach((row) => {
             const nm = getNameFromRow(row);
             if (!nm) return;
+
             let expected = 0;
             let attended = 0;
+            const attArr = (row as any)._att as number[] | undefined;
+
             for (const ci of dateCols) {
               const hk = headers[ci];
               if (!hk || !String(hk).trim()) continue;
               if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
+
               const iso = String(headersISO?.[ci] || '').trim();
               if (!iso) continue;
               expected += 1;
-              if (attKeySet.has(`${nm}|${iso}`)) attended += 1;
+
+              if (isTAO1 && attKeySet) {
+                if (attKeySet.has(`${nm}|${iso}`)) attended += 1;
+              } else if (Array.isArray(attArr) && attArr[ci]) {
+                attended += 1;
+              }
             }
+
             if (!expected) return;
             const rate = attended / expected;
             (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
@@ -1240,7 +1218,7 @@ export default function DashboardPage() {
     setFreezeEnd(0);
   }
 
-  function buildSingleAttStat() {
+  async function buildSingleAttStat() {
     if (!useGas) return;
     if (!query.page.includes('班表')) return;
     const all = rows as any as GasRecordRow[];
@@ -1256,7 +1234,11 @@ export default function DashboardPage() {
       return;
     }
 
-    const exclude = buildExcludeSet();
+    const exclude = buildExcludeForAttRateSet();
+    const wh = normalizeWarehouseKey(query.warehouse);
+    const isTAO1 = wh === 'TAO1' || wh === 'TA01';
+    const apiName = isAdmin ? '' : (user?.name || '');
+    const attKeySet = isTAO1 ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
 
     const deptKey = findDeptKey(gasHeaders);
     const shiftKey = findShiftKey(gasHeaders);
@@ -1288,8 +1270,15 @@ export default function DashboardPage() {
       personRows.forEach((row) => {
         colIndices.forEach((ci) => {
           const hk = gasHeaders[ci];
-          if (isShouldAttendCell((row as any)[hk], exclude)) {
-            shouldDays += 1;
+          if (!hk || !String(hk).trim()) return;
+          if (!isShouldAttendCell((row as any)[hk], exclude)) return;
+          const iso = String(gasHeadersISO?.[ci] || '').trim();
+          if (!iso) return;
+          shouldDays += 1;
+          if (isTAO1 && attKeySet) {
+            const nm = getNameFromRow(row);
+            if (attKeySet.has(`${nm}|${iso}`)) actDays += 1;
+          } else {
             if (isActualAttendCell(ci, row)) actDays += 1;
           }
         });
@@ -1345,14 +1334,18 @@ export default function DashboardPage() {
     setAttSingleBuilt([]);
   }
 
-  function buildAllAttStat() {
+  async function buildAllAttStat() {
     if (!useGas) return;
     if (!isAdmin) return;
     if (!query.page.includes('班表')) return;
     const all = rows as any as GasRecordRow[];
     if (!all.length || !gasDateCols.length || !dateList.length) return;
 
-    const exclude = buildExcludeSet();
+    const exclude = buildExcludeForAttRateSet();
+    const wh = normalizeWarehouseKey(query.warehouse);
+    const isTAO1 = wh === 'TAO1' || wh === 'TA01';
+    const apiName = isAdmin ? '' : (user?.name || '');
+    const attKeySet = isTAO1 ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
     const deptKey = findDeptKey(gasHeaders);
     const shiftKey = findShiftKey(gasHeaders);
     const nameKey = '姓名';
@@ -1371,8 +1364,15 @@ export default function DashboardPage() {
       personRows.forEach((row) => {
         colIndices.forEach((ci) => {
           const hk = gasHeaders[ci];
-          if (isShouldAttendCell((row as any)[hk], exclude)) {
-            shouldDays += 1;
+          if (!hk || !String(hk).trim()) return;
+          if (!isShouldAttendCell((row as any)[hk], exclude)) return;
+          const iso = String(gasHeadersISO?.[ci] || '').trim();
+          if (!iso) return;
+          shouldDays += 1;
+          if (isTAO1 && attKeySet) {
+            const nm = getNameFromRow(row);
+            if (attKeySet.has(`${nm}|${iso}`)) actDays += 1;
+          } else {
             if (isActualAttendCell(ci, row)) actDays += 1;
           }
         });
