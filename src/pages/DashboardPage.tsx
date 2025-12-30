@@ -14,10 +14,8 @@ import { exportCsv, exportElementPng, exportExcelHtml } from '../lib/export';
 type DisplayRow = PersonRow | GasRecordRow;
 
 const PAGES_CACHE = new Map<string, { ts: number; pages: string[] }>();
-const ATT_KEYSET_CACHE = new Map<string, { ts: number; set: Set<string> }>();
 
 const PAGES_CACHE_MS = 20_000;
-const ATT_KEYSET_CACHE_MS = 5 * 60_000;
 
 function getAttendanceFromRow(r: DisplayRow): AttendanceSummary | undefined {
   if ((r as any)._attendance) return (r as any)._attendance as AttendanceSummary;
@@ -461,75 +459,6 @@ function pickWorstSourceSheet(warehouse: string, pages: string[]): string {
   );
 }
 
-function pickAttendanceSheets(pages: string[]): string[] {
-  const list = Array.isArray(pages) ? pages : [];
-  const keys = ['出勤紀律', '出勤記錄', '出勤時數', '出勤時間', '出勤備份'];
-  return list.filter((p) => keys.some((k) => String(p || '').includes(k)));
-}
-
-function findNameKeyFromHeaders(headers: string[]): string | null {
-  for (const h of headers) {
-    const s = String(h || '').trim();
-    if (!s) continue;
-    if (s === '姓名' || /^name$/i.test(s)) return s;
-  }
-  for (const h of headers) {
-    const s = String(h || '').trim();
-    if (!s) continue;
-    if (s.includes('姓名') || s.includes('員工') || /^name$/i.test(s) || /employee/i.test(s)) return s;
-  }
-  return null;
-}
-
-async function buildAttendanceKeySet(
-  warehouse: string,
-  pages: string[],
-  apiName: string
-): Promise<Set<string>> {
-  const sheetNames = pickAttendanceSheets(pages);
-  if (!sheetNames.length) return new Set();
-
-  const cacheKey = `${warehouse}::${apiName}::${sheetNames.join('|')}`;
-  const hit = ATT_KEYSET_CACHE.get(cacheKey);
-  if (hit && Date.now() - hit.ts < ATT_KEYSET_CACHE_MS) return hit.set;
-
-  const payloads = await Promise.all(
-    sheetNames.map((sn) => gasQuerySheet(warehouse, sn, apiName).catch(() => null))
-  );
-
-  const out = new Set<string>();
-  payloads.forEach((payload, idx) => {
-    if (!payload) return;
-    const sn = sheetNames[idx];
-    const { headers, rows } = gasPayloadToRows(payload, { disableAttendance: true, sheetName: sn });
-    const nameKey = findNameKeyFromHeaders(headers);
-    const dateKey = findDateKey(headers);
-    if (!nameKey || !dateKey) return;
-
-    for (const r of rows) {
-      const nm = String((r as any)[nameKey] ?? '').trim();
-      const ds = String((r as any)[dateKey] ?? '').trim();
-      if (!nm || !ds) continue;
-
-      let iso = guessISOFromText(ds);
-      if (!iso) {
-        const d = new Date(ds);
-        if (!Number.isNaN(d.getTime())) {
-          const y = d.getFullYear();
-          const mo = (`0${d.getMonth() + 1}`).slice(-2);
-          const da = (`0${d.getDate()}`).slice(-2);
-          iso = `${y}-${mo}-${da}`;
-        }
-      }
-      if (!iso) continue;
-      out.add(`${nm}|${iso}`);
-    }
-  });
-
-  ATT_KEYSET_CACHE.set(cacheKey, { ts: Date.now(), set: out });
-  return out;
-}
-
 function isShouldAttendCell(raw: unknown, exclude: Set<string>): boolean {
   const s = (raw == null ? '' : String(raw)).trim();
   if (!s) return true;
@@ -830,10 +759,6 @@ export default function DashboardPage() {
       }
 
       const exclude = buildExcludeForAttRateSet();
-      const wh = normalizeWarehouseKey(query.warehouse);
-      const isTAO1 = wh === 'TAO1' || wh === 'TA01';
-      const attKeySet = isTAO1 ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
-      const useAttendanceMap = Boolean(isTAO1 && attKeySet && attKeySet.size);
 
       const byName = new Map<string, GasRecordRow[]>();
       gasRows.forEach((r) => {
@@ -855,17 +780,9 @@ export default function DashboardPage() {
             if (!hk || !String(hk).trim()) continue;
             if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
 
-            if (useAttendanceMap) {
-              let iso = String(headersISO?.[ci] || '').trim();
-              if (!iso) iso = guessISOFromText(String(hk || ''));
-              if (!iso) continue;
-              expectedSet.add(iso);
-              if (attKeySet && attKeySet.has(`${nm}|${iso}`)) attendedSet.add(iso);
-            } else {
-              const iso = String(headersISO?.[ci] || '').trim() || String(hk || '').trim() || String(ci);
-              expectedSet.add(iso);
-              if (isActualAttendCell(ci, row)) attendedSet.add(iso);
-            }
+            const iso = String(headersISO?.[ci] || '').trim() || String(hk || '').trim() || String(ci);
+            expectedSet.add(iso);
+            if (isActualAttendCell(ci, row)) attendedSet.add(iso);
           }
         }
 
@@ -1022,34 +939,10 @@ export default function DashboardPage() {
         });
         setGasHeaders(headers);
 
-        const wh = String(query.warehouse || '').trim().toUpperCase();
-        const isTAO1 = wh === 'TAO1' || wh === 'TA01';
         const isSchedulePage = query.page.includes('班表');
 
         if (!isHoursPage && isSchedulePage && headers.length && dateCols.length) {
           const exclude = buildExcludeForAttRateSet();
-          const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
-
-          let attKeySet: Set<string> | null = null;
-          if (isTAO1) {
-            let pagesForAtt = availablePages;
-            if (!Array.isArray(pagesForAtt) || !pagesForAtt.length) {
-              const hit = PAGES_CACHE.get(query.warehouse);
-              if (hit && Date.now() - hit.ts < PAGES_CACHE_MS) {
-                pagesForAtt = hit.pages;
-              } else {
-                try {
-                  const pages = await gasGetSheets(query.warehouse);
-                  PAGES_CACHE.set(query.warehouse, { ts: Date.now(), pages });
-                  pagesForAtt = pages;
-                  setAvailablePages(pages.length ? pages : mockPages);
-                } catch {
-                  pagesForAtt = availablePages;
-                }
-              }
-            }
-            attKeySet = await buildAttendanceKeySet(query.warehouse, pagesForAtt, apiName);
-          }
 
           gasRows.forEach((row) => {
             const nm = getNameFromRow(row);
@@ -1063,17 +956,9 @@ export default function DashboardPage() {
               const hk = headers[ci];
               if (!hk || !String(hk).trim()) continue;
               if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
-
-              let iso = String(headersISO?.[ci] || '').trim();
-              if (!iso) iso = guessISOFromText(String(hk || ''));
-              if (!iso) continue;
               expected += 1;
 
-              if (isTAO1 && attKeySet) {
-                if (attKeySet.has(`${nm}|${iso}`)) attended += 1;
-              } else if (Array.isArray(attArr) && attArr[ci]) {
-                attended += 1;
-              }
+              if (Array.isArray(attArr) && attArr[ci]) attended += 1;
             }
 
             if (!expected) return;
@@ -1307,10 +1192,6 @@ export default function DashboardPage() {
     }
 
     const exclude = buildExcludeForAttRateSet();
-    const wh = normalizeWarehouseKey(query.warehouse);
-    const isTAO1 = wh === 'TAO1' || wh === 'TA01';
-    const apiName = isAdmin ? '' : (user?.name || '');
-    const attKeySet = isTAO1 ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
 
     const deptKey = findDeptKey(gasHeaders);
     const shiftKey = findShiftKey(gasHeaders);
@@ -1344,16 +1225,8 @@ export default function DashboardPage() {
           const hk = gasHeaders[ci];
           if (!hk || !String(hk).trim()) return;
           if (!isShouldAttendCell((row as any)[hk], exclude)) return;
-          let iso = String(gasHeadersISO?.[ci] || '').trim();
-          if (!iso) iso = guessISOFromText(String(hk || ''));
-          if (!iso) return;
           shouldDays += 1;
-          if (isTAO1 && attKeySet) {
-            const nm = getNameFromRow(row);
-            if (attKeySet.has(`${nm}|${iso}`)) actDays += 1;
-          } else {
-            if (isActualAttendCell(ci, row)) actDays += 1;
-          }
+          if (isActualAttendCell(ci, row)) actDays += 1;
         });
       });
       const absent = shouldDays - actDays;
@@ -1415,10 +1288,6 @@ export default function DashboardPage() {
     if (!all.length || !gasDateCols.length || !dateList.length) return;
 
     const exclude = buildExcludeForAttRateSet();
-    const wh = normalizeWarehouseKey(query.warehouse);
-    const isTAO1 = wh === 'TAO1' || wh === 'TA01';
-    const apiName = isAdmin ? '' : (user?.name || '');
-    const attKeySet = isTAO1 ? await buildAttendanceKeySet(query.warehouse, availablePages, apiName) : null;
     const deptKey = findDeptKey(gasHeaders);
     const shiftKey = findShiftKey(gasHeaders);
     const nameKey = '姓名';
@@ -1439,16 +1308,8 @@ export default function DashboardPage() {
           const hk = gasHeaders[ci];
           if (!hk || !String(hk).trim()) return;
           if (!isShouldAttendCell((row as any)[hk], exclude)) return;
-          let iso = String(gasHeadersISO?.[ci] || '').trim();
-          if (!iso) iso = guessISOFromText(String(hk || ''));
-          if (!iso) return;
           shouldDays += 1;
-          if (isTAO1 && attKeySet) {
-            const nm = getNameFromRow(row);
-            if (attKeySet.has(`${nm}|${iso}`)) actDays += 1;
-          } else {
-            if (isActualAttendCell(ci, row)) actDays += 1;
-          }
+          if (isActualAttendCell(ci, row)) actDays += 1;
         });
       });
       const rate = shouldDays > 0 ? (actDays / shouldDays) * 100 : null;
