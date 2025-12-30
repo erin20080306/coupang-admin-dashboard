@@ -77,6 +77,7 @@ function statusFromRate(rate: number): AttendanceSummary['status'] {
 }
 
 function calcAttendance(
+  headers: string[] | undefined,
   dateCols: number[] | undefined,
   row: GasRow,
   options?: GasTransformOptions
@@ -84,6 +85,7 @@ function calcAttendance(
   const sheetName = String(options?.sheetName || '').trim();
   if (!sheetName.includes('班表')) return undefined;
   if (!dateCols?.length) return undefined;
+  if (!headers?.length) return undefined;
 
   const att = row.att;
   if (!att || !att.length) return undefined;
@@ -93,6 +95,10 @@ function calcAttendance(
   let shouldDays = 0;
   let actDays = 0;
   for (const ci of dateCols) {
+    const hk = headers[ci];
+    if (!hk || !String(hk).trim()) continue;
+    if (!row.v || ci < 0 || ci >= row.v.length) continue;
+
     if (isShouldAttendCell(row.v?.[ci], exclude)) {
       shouldDays += 1;
       if (att[ci]) actDays += 1;
@@ -143,7 +149,7 @@ export function gasPayloadToRows(
       if (Array.isArray((r as any).att)) obj._att = (r as any).att as number[];
 
       if (!options?.disableAttendance) {
-        const att = calcAttendance(payload.dateCols, r, options);
+        const att = calcAttendance(headers, payload.dateCols, r, options);
         if (att) obj._attendance = att;
       }
 
