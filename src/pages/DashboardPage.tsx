@@ -946,7 +946,8 @@ export default function DashboardPage() {
 
         const isSchedulePage = query.page.includes('班表');
 
-        if (!isHoursPage && isSchedulePage && headers.length && dateCols.length) {
+        // 班表分頁：補算出勤率（即使 dateCols 為空也要設定 _attendance）
+        if (!isHoursPage && isSchedulePage && headers.length) {
           const exclude = buildExcludeForAttRateSet();
 
           gasRows.forEach((row) => {
@@ -956,13 +957,16 @@ export default function DashboardPage() {
             let expected = 0;
             let attended = 0;
 
-            for (const ci of dateCols) {
-              const hk = headers[ci];
-              if (!hk || !String(hk).trim()) continue;
-              if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
-              expected += 1;
+            // 如果有 dateCols，用 dateCols 計算
+            if (dateCols.length) {
+              for (const ci of dateCols) {
+                const hk = headers[ci];
+                if (!hk || !String(hk).trim()) continue;
+                if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
+                expected += 1;
 
-              if (isActualAttendCell(ci, row)) attended += 1;
+                if (isActualAttendCell(ci, row)) attended += 1;
+              }
             }
 
             // 即使 expected=0 也設定 _attendance，讓出勤率欄位能顯示
