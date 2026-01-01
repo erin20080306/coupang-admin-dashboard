@@ -565,6 +565,7 @@ function calcRowAttendance(
     const hk = headers[ci];
     if (!hk) continue;
     const cellValue = (row as any)[hk];
+    const cellStr = String(cellValue ?? '').trim();
     const parsed = parseCellForRules(cellValue);
 
     if (!parsed.excludeDen) {
@@ -575,13 +576,17 @@ function calcRowAttendance(
       // 1. 命中 excludeAbs → 不缺勤
       // 2. presentSet 有資料且包含 key → 不缺勤
       // 3. presentSet 為空但 _att 有資料且 att[ci]=1 → 不缺勤
-      // 4. 以上都不滿足 → 缺勤
+      // 4. 以上都不滿足但格子有內容 → 不缺勤（最終 fallback）
+      // 5. 以上都不滿足 → 缺勤
       let isAbsent = true;
       if (parsed.excludeAbs) {
         isAbsent = false;
       } else if (hasPresentSet && presentSet!.has(key)) {
         isAbsent = false;
       } else if (!hasPresentSet && hasAttArr && attArr![ci]) {
+        isAbsent = false;
+      } else if (!hasPresentSet && !hasAttArr && cellStr) {
+        // 最終 fallback：如果沒有任何出勤資料來源，有排班內容就算實到
         isAbsent = false;
       }
       if (isAbsent) absCnt += 1;
@@ -1156,17 +1161,18 @@ export default function DashboardPage() {
           setAttPresentSet(null);
         }
 
+        // 過濾空白列（沒有姓名的列）
+        const filteredRows = gasRows.filter((row) => {
+          const nm = getRawNameFromRow(row as any);
+          return !!nm;
+        });
+
         // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
-        gasRows.forEach((row) => {
+        filteredRows.forEach((row) => {
           if ((row as any)._attendance) return;
           const nm = getRawNameFromRow(row as any);
 
           if (!isHoursPage && isSchedulePage && dateCols.length) {
-            if (!nm) {
-              (row as any)._attendance = { rate: 0, attended: 0, expected: 0, status: 'normal' as const };
-              (row as any)._attendanceRate = 0;
-              return;
-            }
             const presentSet = presentSetForPage || buildPresentSetFromAtt(row, dateCols, headersISO, nm);
             const att = calcRowAttendance(row, dateCols, headers, headersISO, presentSet, nm);
             (row as any)._attendance = att;
@@ -1177,13 +1183,13 @@ export default function DashboardPage() {
           }
         });
 
-        if (!gasRows.length) {
+        if (!filteredRows.length) {
           setStatus('empty');
           setResult({ rows: [] as any, stats: { total: 0, attended: 0, late: 0, absent: 0 } });
           return;
         }
 
-        const stat = gasRows.reduce(
+        const stat = filteredRows.reduce(
           (acc, r) => {
             acc.total += 1;
             const a = (r as any)._attendance as AttendanceSummary | undefined;
@@ -1196,7 +1202,7 @@ export default function DashboardPage() {
           { total: 0, attended: 0, late: 0, absent: 0 }
         );
 
-        setResult({ rows: gasRows as any, stats: stat });
+        setResult({ rows: filteredRows as any, stats: stat });
         setStatus('success');
         setAttWorstOpen(false);
         setAttBestOpen(false);
