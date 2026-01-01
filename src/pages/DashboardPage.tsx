@@ -1000,11 +1000,15 @@ export default function DashboardPage() {
         setGasHeadersISO(headersISO);
         let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
         
+        // DEBUG
+        console.log('[doQuery] payload.dateCols:', payload.dateCols, 'headersISO sample:', headersISO.slice(0, 10));
+        
         // 如果 dateCols 是空的，從 headersISO 推測日期欄
         if (!dateCols.length && headersISO.length) {
           dateCols = headersISO
             .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
             .filter((i) => i >= 0);
+          console.log('[doQuery] inferred dateCols:', dateCols);
         }
         setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
@@ -1015,6 +1019,9 @@ export default function DashboardPage() {
         setGasHeaders(headers);
 
         const isSchedulePage = query.page.includes('班表');
+        
+        // DEBUG
+        console.log('[doQuery] isHoursPage:', isHoursPage, 'isSchedulePage:', isSchedulePage, 'dateCols.length:', dateCols.length, 'gasRows.length:', gasRows.length);
 
         // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
         const exclude = buildExcludeForAttRateSet();
@@ -1045,6 +1052,12 @@ export default function DashboardPage() {
           (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
           (row as any)._attendanceRate = rate;
         });
+        
+        // DEBUG: 檢查第一列的 _attendance
+        if (gasRows.length) {
+          const first = gasRows[0] as any;
+          console.log('[doQuery] first row _attendance:', first._attendance, 'name:', getNameFromRow(first as any));
+        }
 
         if (!gasRows.length) {
           setStatus('empty');
