@@ -809,7 +809,15 @@ export default function DashboardPage() {
       const dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
       const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
 
-      if (!gasRows.length || !dateCols.length) {
+      // 如果 dateCols 是空的，從 headersISO 推測日期欄
+      let effectiveDateCols = dateCols;
+      if (!effectiveDateCols.length && headersISO.length) {
+        effectiveDateCols = headersISO
+          .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+          .filter((i) => i >= 0);
+      }
+
+      if (!gasRows.length || !effectiveDateCols.length) {
         setAttWorstSourcePage(source);
         setAttAll([]);
         return;
@@ -833,7 +841,7 @@ export default function DashboardPage() {
 
         const excludeAbs = buildExcludeFromAbsSet();
         for (const row of personRows) {
-          for (const ci of dateCols) {
+          for (const ci of effectiveDateCols) {
             const hk = headers[ci];
             if (!hk || !String(hk).trim()) continue;
             const cellValue = (row as any)[hk];
@@ -988,8 +996,16 @@ export default function DashboardPage() {
       if (useGas) {
         const apiName = isAdmin ? '' : (user?.name || '');
         const payload = await gasQuerySheet(query.warehouse, query.page, apiName);
-        setGasHeadersISO((payload.headersISO ?? []).map((h) => String(h ?? '')));
-        const dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
+        const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
+        setGasHeadersISO(headersISO);
+        let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
+        
+        // 如果 dateCols 是空的，從 headersISO 推測日期欄
+        if (!dateCols.length && headersISO.length) {
+          dateCols = headersISO
+            .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+            .filter((i) => i >= 0);
+        }
         setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
         const { headers, rows: gasRows } = gasPayloadToRows(payload, {
