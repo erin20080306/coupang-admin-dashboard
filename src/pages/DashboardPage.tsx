@@ -876,7 +876,6 @@ export default function DashboardPage() {
 
   const [attWorstSourcePage, setAttWorstSourcePage] = useState<string>('');
   const [attAll, setAttAll] = useState<Array<{ id: string; name: string; summary: AttendanceSummary }>>([]);
-  const [attPresentSet, setAttPresentSet] = useState<Set<string> | null>(null);
 
   const attendanceAllAgg = useMemo(() => {
     let expected = 0;
@@ -1146,20 +1145,6 @@ export default function DashboardPage() {
         });
         setGasHeaders(headers);
 
-        const isSchedulePage = query.page.includes('班表');
-
-        let presentSetForPage: Set<string> | null = null;
-        if (!isHoursPage && isSchedulePage && dateCols.length) {
-          const names = new Set<string>();
-          gasRows.forEach((r) => {
-            const nm = getRawNameFromRow(r as any);
-            if (nm) names.add(nm);
-          });
-          presentSetForPage = await buildPresentSetFromAttendanceSheets(query.warehouse, availablePages, apiName, names);
-          setAttPresentSet(presentSetForPage);
-        } else {
-          setAttPresentSet(null);
-        }
 
         // 過濾空白列（沒有姓名的列）
         const filteredRows = gasRows.filter((row) => {
@@ -1167,20 +1152,21 @@ export default function DashboardPage() {
           return !!nm;
         });
 
-        // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
+        // 直接使用 GAS 傳回的出勤率資料（attRate, attExpected, attAttended）
         filteredRows.forEach((row) => {
-          if ((row as any)._attendance) return;
-          const nm = getRawNameFromRow(row as any);
+          const rawRow = row as any;
+          // GAS 端已計算好 attRate, attExpected, attAttended
+          const attRate = typeof rawRow.attRate === 'number' ? rawRow.attRate : 0;
+          const attExpected = typeof rawRow.attExpected === 'number' ? rawRow.attExpected : 0;
+          const attAttended = typeof rawRow.attAttended === 'number' ? rawRow.attAttended : 0;
 
-          if (!isHoursPage && isSchedulePage && dateCols.length) {
-            const presentSet = presentSetForPage || buildPresentSetFromAtt(row, dateCols, headersISO, nm);
-            const att = calcRowAttendance(row, dateCols, headers, headersISO, presentSet, nm);
-            (row as any)._attendance = att;
-            (row as any)._attendanceRate = att.rate;
-          } else {
-            (row as any)._attendance = { rate: 0, attended: 0, expected: 0, status: 'normal' as const };
-            (row as any)._attendanceRate = 0;
-          }
+          rawRow._attendance = {
+            rate: attRate,
+            attended: attAttended,
+            expected: attExpected,
+            status: statusFromRate(attRate)
+          };
+          rawRow._attendanceRate = attRate;
         });
 
         if (!filteredRows.length) {
@@ -1431,7 +1417,7 @@ export default function DashboardPage() {
         })();
 
     function computeForCols(colIndices: number[]) {
-      const presentSet = attPresentSet || buildPresentSetFromAtt(personRows[0], colIndices, gasHeadersISO, targetName);
+      const presentSet = buildPresentSetFromAtt(personRows[0], colIndices, gasHeadersISO, targetName);
       const att = calcRowAttendance(personRows[0], colIndices, gasHeaders, gasHeadersISO, presentSet, targetName);
       const absent = att.expected - att.attended;
       const rate = att.expected > 0 ? (att.attended / att.expected) * 100 : null;
@@ -1504,7 +1490,7 @@ export default function DashboardPage() {
     });
 
     function computeForCols(personRows: GasRecordRow[], colIndices: number[], nm: string) {
-      const presentSet = attPresentSet || buildPresentSetFromAtt(personRows[0], colIndices, gasHeadersISO, nm);
+      const presentSet = buildPresentSetFromAtt(personRows[0], colIndices, gasHeadersISO, nm);
       const att = calcRowAttendance(personRows[0], colIndices, gasHeaders, gasHeadersISO, presentSet, nm);
       const rate = att.expected > 0 ? (att.attended / att.expected) * 100 : null;
       return { shouldDays: att.expected, actDays: att.attended, rate };

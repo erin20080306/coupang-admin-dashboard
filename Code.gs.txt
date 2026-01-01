@@ -1,0 +1,1077 @@
+// =========================
+// ========== Code.gs ======
+// =========================
+
+/** 各倉別對應的 Google Sheet ID */
+const WAREHOUSE_IDS = {
+  'TAO1': '1_bhGQdx0YH7lsqPFEq5___6_Nwq_gbelJmIHv0bmaIE',
+  'TAO3': '1cffI2jIVZA1uSiAyaLLXXgPzDByhy87xznaN85O7wEE',
+  'TAO4': '1tVxQbV0298fn2OXWAF0UqZa7FLbypsatciatxs4YVTU',
+  'TAO5': '1jzVXC6gt36hJtlUHoxtTzZLMNj4EtTsd4k8eNB1bdiA',
+  'TAO6': '1wwPLSLjl2abfM_OMdTNI9PoiPKo3waCV_y0wmx2DxAE',
+  'TAO7': '16nGCqRO8DYDm0PbXFbdt-fiEFZCXxXjlOWjKU67p4LY',
+  'TAO10': '1y0w49xdFlHvcVtgtG8fq6zdrF26y8j7HMFh5ujzUyR4'
+};
+
+/** 預設倉別（登入與預設皆需）*/
+const DEFAULT_WAREHOUSE_KEY = 'TAO1';
+
+/** 固定讀取一個表（TAO1，可自行更改這一個 ID) 
+ * 目前用於登入驗證與預設倉別 
+ */
+const SPREADSHEET_ID = WAREHOUSE_IDS[DEFAULT_WAREHOUSE_KEY];
+
+/** 不當作分頁選項的分頁（登入用、調動紀錄等）*/
+const EXCLUDED_SHEETS = ['生日稀核', '調動記錄'];
+
+/** 登入驗證用分頁名稱（在 SPREADSHEET_ID 裡）*/
+const LOGIN_SHEET_NAME = '生日稀核';
+
+/** MASTER INDEX 總索引表：用來先查姓名/生日/倉別（A=姓名,B=生日,C=倉別）*/
+const MASTER_INDEX_SPREADSHEET_ID = '12ce9KH2Zjs4mQ90d0yxvwww4gnjpOuEKg7eFWTec0oQ';
+const MASTER_INDEX_SHEET_NAME = 'index';
+
+/** 排除出勤率分母的關鍵字（例、休、國、離、調倉、調任、轉正）*/
+var EXCLUDE_FROM_DENOM = {
+  '例': true, '休': true, '國': true, '離': true,
+  '調倉': true, '調任': true, '轉正': true
+};
+
+/** 排除缺勤的關鍵字（有這些就算實到）*/
+var EXCLUDE_FROM_ABS = {
+  '例': true, '休': true, '國': true, '離': true,
+  '調倉': true, '調任': true, '轉正': true,
+  '未': true, '特': true
+};
+
+/** 解析格子內容，判斷是否排除在「應到」或「實到」計算之外 */
+function parseCellForRules_(cell) {
+  var raw = String(cell || '').trim();
+  if (!raw) return { excludeDen: false, excludeAbs: false };
+
+  var tokens = raw.split(/[、，,;／\/\n]+/).map(function(x) { return x.trim(); }).filter(Boolean);
+  var excludeDen = tokens.some(function(t) { return EXCLUDE_FROM_DENOM[t]; });
+
+  // 純英數字（無中文）也算實到
+  var ALNUM_RE = /^[A-Za-z0-9\-:\.]+$/;
+  var HAS_CJK_RE = /[\u4e00-\u9fff]/;
+  var excludeAbs = tokens.some(function(t) { return EXCLUDE_FROM_ABS[t]; }) ||
+    (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
+
+  return { excludeDen: excludeDen, excludeAbs: excludeAbs };
+}
+
+/** 依倉別 key (如 "TAO3") 取得對應總索引表 ID，若無則改用預設 TAO1 */
+function resolveWarehouse_(wh) {
+  var key = normWhKey_(wh);
+  if (!WAREHOUSE_IDS[key]) key = DEFAULT_WAREHOUSE_KEY;
+  return { key: key, id: WAREHOUSE_IDS[key] };
+}
+
+/**
+ * 總網入口
+ * 預設回傳 index.html
+ * mode=api 時回傳指定分頁＋指定姓名的資料
+ * mode=getSheets 時回傳該倉別的可選分頁清單
+ * mode=getAllPeopleCount 時回傳所有倉別人數
+ * 可加 wh=TAO3 / TAO4 ... 切換倉別（目前只維護者前端使用）
+ */
+function doGet(e) {
+  var whParam = e && e.parameter && e.parameter.wh;
+  var resolved = resolveWarehouse_(whParam);
+  var warehouseKey = resolved.key;
+  var ssid = resolved.id;
+
+  // ✅ 只回傳指定倉別的總索引表 ID（給前端「跳轉各倉總索引表」用）
+  // 注意：此模式不做預設倉別回調；若倉別不存在就回傳錯誤
+  if (e && e.parameter && e.parameter.mode === 'getWarehouseId') {
+    var rawKey = normWhKey_(whParam);
+    if (!rawKey || !WAREHOUSE_IDS[rawKey]) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: '找不到倉別總索引表 ID：' + rawKey })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, warehouse: rawKey, spreadsheetId: WAREHOUSE_IDS[rawKey] })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 回傳所有倉別人數（給前端 KPI 用）
+  if (e && e.parameter && e.parameter.mode === 'getAllPeopleCount') {
+    var countData = getAllPeopleCount_();
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        totalPeople: countData.total,
+        details: countData.details
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 只回傳指定倉別的分頁清單（給前端稀核者切換倉別用）
+  if (e && e.parameter && e.parameter.mode === 'getSheets') {
+    var sheets = getSheetNames_(ssid);
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, warehouse: warehouseKey, sheets: sheets })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // mode=api 時：回傳指定分頁＋指定姓名的資料
+  if (e && e.parameter && e.parameter.mode === 'api') {
+    var sheetName = tryDecodeOnce_(e.parameter.sheet || '');
+    var nameFilter = tryDecodeOnce_(e.parameter.name || '');
+    if (!sheetName) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: '未指定分頁' })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+    try {
+      var payload = getGridPayloadForName_(sheetName, ssid, nameFilter);
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: true, warehouse: warehouseKey, data: payload })
+      ).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: err.toString() })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // 預設：回傳 index.html
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('寶佳鋼鐵表 - 登入')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** 取得分頁列表（排除不當作選項的分頁）*/
+function getSheetNames_(spreadsheetId) {
+  var ss = SpreadsheetApp.openById(spreadsheetId);
+  var sheets = ss.getSheets();
+  var names = [];
+  for (var i = 0; i < sheets.length; i++) {
+    var n = sheets[i].getName();
+    if (EXCLUDED_SHEETS.indexOf(n) < 0) {
+      names.push(n);
+    }
+  }
+  return names;
+}
+
+/** 標準化姓名：去空白、全形轉半形 */
+function normName_(s) {
+  return String(s || '').trim().replace(/\s+/g, '');
+}
+
+/** 標準化倉別 key */
+function normWhKey_(s) {
+  return String(s || '').trim().toUpperCase();
+}
+
+/** 標準化生日：只保留數字 */
+function normBirth_(s) {
+  return String(s || '').replace(/\D/g, '');
+}
+
+/** 標準化字串：去空白 */
+function norm_(s) {
+  return String(s || '').trim();
+}
+
+/** 從 Sheet 名稱不分大小寫查找 */
+function getSheetByNameCI_(ss, name) {
+  var target = String(name || '').trim().toLowerCase();
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName().toLowerCase() === target) {
+      return sheets[i];
+    }
+  }
+  return null;
+}
+
+/** 從 MASTER_INDEX 查姓名對應的倉別 */
+function findWarehouseByName_(name) {
+  var nm = normName_(name);
+  if (!nm) return null;
+
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'idxWh:' + nm;
+  try {
+    var cached = cache.get(cacheKey);
+    if (cached) return String(cached);
+  } catch (_) { }
+
+  var idxSs = SpreadsheetApp.openById(MASTER_INDEX_SPREADSHEET_ID);
+  var idxSh = getSheetByNameCI_(idxSs, MASTER_INDEX_SHEET_NAME);
+  if (!idxSh) {
+    throw new Error('找不到 MASTER_INDEX 分頁：' + MASTER_INDEX_SHEET_NAME);
+  }
+
+  var idxLast = idxSh.getLastRow();
+  if (idxLast < 2) {
+    throw new Error('MASTER_INDEX 尚無資料');
+  }
+
+  var idxVals = idxSh.getRange(2, 1, idxLast - 1, 3).getDisplayValues();
+  var whSet = {};
+
+  for (var i = 0; i < idxVals.length; i++) {
+    var n = normName_(idxVals[i][0]);
+    if (n !== nm) continue;
+    var wh = normWhKey_(idxVals[i][2]);
+    if (wh) whSet[wh] = true;
+  }
+
+  var keys = Object.keys(whSet);
+  if (keys.length === 1) {
+    try { cache.put(cacheKey, String(keys[0]), 600); } catch (_) { }
+    return keys[0];
+  }
+  if (keys.length > 1) {
+    throw new Error('INDEX 同名多倉，請指定倉別：' + nm + ' → ' + keys.join(','));
+  }
+  throw new Error('INDEX 找不到該姓名的倉別：' + nm);
+}
+
+/**
+ * 登入驗證
+ * name：姓名；birthday：生日（文字比對，不限制位數）
+ * 規則：
+ *  - 稀核者：姓名=「鋼鐵」＆生日=「0000」→ 直接通過，不查總索引表
+ *  - 一般使用者：
+ *      1) 先查 MASTER_INDEX/index：A=姓名、B=生日、C=倉別 → 姓名+生日相符才取倉別
+ *      2) 再到該倉總索引表的「生日稀核」分頁中，A欄=姓名 且 B欄=生日 才通過
+ *      3) 回傳 warehouseKey 給前端鎖定倉別
+ */
+function verifyLogin(name, birthday) {
+  name = normName_(name);
+  birthday = norm_(birthday);
+
+  if (!name || !birthday) {
+    return { ok: false, msg: '請輸入姓名與生日' };
+  }
+
+  // 稀核者帳號：不用驗證分頁
+  if (name === '鋼鐵' && birthday === '0000') {
+    return { ok: true, isAdmin: true, name: name, warehouseKey: DEFAULT_WAREHOUSE_KEY };
+  }
+
+  // 1) MASTER_INDEX：A=姓名 B=生日 C=倉別
+  var cache = CacheService.getScriptCache();
+  var ck = 'idxLogin:' + name + ':' + normBirth_(birthday);
+  try {
+    var cachedWh = cache.get(ck);
+    if (cachedWh) {
+      var whCached = normWhKey_(cachedWh);
+      if (whCached) {
+        var ssidCached = WAREHOUSE_IDS[whCached];
+        if (ssidCached) {
+          return verifyBirthdayInWarehouse_(whCached, ssidCached, name, birthday);
+        }
+      }
+    }
+  } catch (_) { }
+
+  var idxSs = SpreadsheetApp.openById(MASTER_INDEX_SPREADSHEET_ID);
+  var idxSh = getSheetByNameCI_(idxSs, MASTER_INDEX_SHEET_NAME);
+  if (!idxSh) {
+    return { ok: false, msg: '找不到 MASTER_INDEX 分頁：' + MASTER_INDEX_SHEET_NAME };
+  }
+
+  var idxLast = idxSh.getLastRow();
+  if (idxLast < 2) {
+    return { ok: false, msg: 'MASTER_INDEX 尚無資料' };
+  }
+
+  var idxVals = idxSh.getRange(2, 1, idxLast - 1, 3).getDisplayValues();
+  var warehouseKey = '';
+  for (var i = 0; i < idxVals.length; i++) {
+    var nm = normName_(idxVals[i][0]);
+    var bd = normBirth_(idxVals[i][1]);
+    var wh = normWhKey_(idxVals[i][2]);
+    if (nm === name && bd && bd === normBirth_(birthday)) {
+      warehouseKey = wh;
+      break;
+    }
+  }
+
+  if (!warehouseKey) {
+    return { ok: false, msg: '姓名或生日不正確（INDEX）' };
+  }
+
+  var ssid = WAREHOUSE_IDS[warehouseKey];
+  if (!ssid) {
+    return { ok: false, msg: '倉別無效：' + warehouseKey };
+  }
+
+  try { cache.put(ck, warehouseKey, 600); } catch (_) { }
+  return verifyBirthdayInWarehouse_(warehouseKey, ssid, name, birthday);
+}
+
+function verifyBirthdayInWarehouse_(warehouseKey, ssid, name, birthday) {
+  var ss = SpreadsheetApp.openById(ssid);
+  var sh = getSheetByNameCI_(ss, LOGIN_SHEET_NAME);
+  if (!sh) {
+    return { ok: false, msg: '找不到「' + LOGIN_SHEET_NAME + '」分頁（' + warehouseKey + '）' };
+  }
+
+  var last = sh.getLastRow();
+  if (last < 2) {
+    return { ok: false, msg: '生日稀核尚無資料（' + warehouseKey + '）' };
+  }
+
+  var vals = sh.getRange(2, 1, last - 1, 2).getDisplayValues();
+  for (var j = 0; j < vals.length; j++) {
+    var nm2 = normName_(vals[j][0]);
+    var bd2 = normBirth_(vals[j][1]);
+    if (nm2 === name && bd2 && bd2 === normBirth_(birthday)) {
+      return { ok: true, isAdmin: false, name: name, warehouseKey: warehouseKey };
+    }
+  }
+
+  return { ok: false, msg: '姓名或生日不正確（' + warehouseKey + ' 生日稀核）' };
+}
+
+/**
+ * 讀取指定分頁的資料，並只保留指定姓名的列
+ * 回傳格式：
+ *  {
+ *    headers: [...],
+ *    headersISO: [...],
+ *    headersTop: [],
+ *    rows: [{v:[...], bg:[...], fc:[...], att:[...], attRate, attExpected, attAttended}...],
+ *    dateCols: [數字...],
+ *    frozenLeft: 整數,
+ *    engine: 'basic',
+ *    counts: {rows:筆數, cols:欄數}
+ *  }
+ */
+function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
+  var ss = SpreadsheetApp.openById(spreadsheetId);
+  var sh = ss.getSheetByName(sheetName);
+  if (!sh) throw new Error('找不到分頁：' + sheetName);
+
+  var lastRow = sh.getLastRow();
+  var lastCol = sh.getLastColumn();
+  var frozenLeft = sh.getFrozenColumns() || 0;
+
+  var nm = String(nameFilter || '').trim();
+  if (nm && (lastRow * lastCol) >= 20000) {
+    try {
+      var fast = fastPayloadForName_(ss, sh, sheetName, nm, lastRow, lastCol, frozenLeft);
+      if (fast) return fast;
+    } catch (_) { }
+  }
+
+  if (lastRow < 1 || lastCol < 1) {
+    return {
+      headers: [],
+      headersISO: [],
+      headersTop: [],
+      rows: [],
+      dateCols: [],
+      frozenLeft: frozenLeft,
+      engine: 'basic',
+      counts: { rows: 0, cols: 0 }
+    };
+  }
+
+  // 依分頁尺寸快取 60 秒（依姓名匹分，姓名篩選在快取之後）
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'grid:' + spreadsheetId + ':' + sheetName + ':' + lastRow + 'x' + lastCol;
+  var base = null;
+
+  try {
+    var cached = cache.get(cacheKey);
+    if (cached) base = JSON.parse(cached);
+  } catch (_) { }
+
+  if (!base) {
+    base = readSheetToPayload_(sh, lastRow, lastCol);
+    base.frozenLeft = frozenLeft;
+    base.engine = 'basic';
+    base.counts = { rows: base.rows.length, cols: base.headers.length };
+    try {
+      var json = JSON.stringify(base);
+      if (json.length < 90000) cache.put(cacheKey, json, 60);
+    } catch (_) { }
+  }
+
+  // 沒有指定姓名 → 回傳全部（給稀核者用），一樣掛上出勤旗標
+  var name = nm;
+  if (!name) {
+    attachAttendanceFlagsForRows_(ss, sheetName, base, base.rows);
+    return base;
+  }
+
+  var nameCol = findNameCol_(base.headers);
+  if (nameCol < 0) nameCol = detectNameColByData_(base.rows, name);
+  if (nameCol < 0) throw new Error('找不到姓名欄位：' + sheetName);
+
+  var filteredRows = base.rows.filter(function(row) {
+    return normName_(String(row.v[nameCol] || '')) === normName_(name);
+  });
+
+  // 一般使用者 / API 指定姓名 → 僅對這些列掛上出勤旗標
+  attachAttendanceFlagsForRows_(ss, sheetName, base, filteredRows);
+
+  return {
+    headers: base.headers,
+    headersISO: base.headersISO,
+    headersTop: base.headersTop || [],
+    rows: filteredRows,
+    dateCols: base.dateCols,
+    frozenLeft: frozenLeft,
+    engine: base.engine || 'basic',
+    counts: { rows: filteredRows.length, cols: base.headers.length }
+  };
+}
+
+/**
+ * 將整個分頁讀成 payload（不做姓名篩選）
+ * ✅ 支援「表頭 1 列或 2 列」：
+ *   - 會自動判斷哪一列才是「真正欄位表頭」
+ *   - TAO3 這種上方有一列標題的班表就不會誤認資料列
+ */
+function readSheetToPayload_(sh, lastRow, lastCol) {
+  var rng = sh.getRange(1, 1, lastRow, lastCol);
+  var values = rng.getDisplayValues();
+  var bgs = rng.getBackgrounds();
+  var fcs = rng.getFontColors();
+
+  if (!values || !values.length) {
+    return {
+      headers: [],
+      headersISO: [],
+      headersTop: [],
+      rows: [],
+      dateCols: []
+    };
+  }
+
+  // 根據前幾列內容自動判斷真正表頭所在列（支援 1 或 2 列表頭）
+  var headerRowIndex = detectHeaderRowIndex_(values);
+
+  var headers = values[headerRowIndex] || [];
+  var headersISO = headers.map(guessISOFromHeaderText_);
+
+  var dateCols = [];
+  for (var i = 0; i < headersISO.length; i++) {
+    if (headersISO[i]) dateCols.push(i);
+  }
+
+  var rows = [];
+  for (var r = headerRowIndex + 1; r < values.length; r++) {
+    rows.push({
+      v: values[r].map(function(x) { return String(x == null ? '' : x); }),
+      bg: bgs[r].slice(),
+      fc: fcs[r].slice()
+    });
+  }
+
+  return {
+    headers: headers,
+    headersISO: headersISO,
+    headersTop: headerRowIndex > 0 ? values[0] : [],
+    rows: rows,
+    dateCols: dateCols
+  };
+}
+
+function tryDecodeOnce_(s) {
+  if (!s) return '';
+  try {
+    return decodeURIComponent(s);
+  } catch (e) {
+    return s;
+  }
+}
+
+/** 找「姓名」欄位位置（匹配版，支援多種寫法）*/
+function findNameCol_(headers) {
+  if (!headers || !headers.length) return -1;
+
+  // 先比對完全相同的欄名
+  var EXACT = ['姓名', 'Name', 'name', '員工姓名', '姓名(建議)', '中文姓名'];
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i] || '').trim();
+    if (!h) continue;
+    if (EXACT.indexOf(h) >= 0) return i;
+  }
+
+  // 再用「包含關鍵字」的方式
+  for (var j = 0; j < headers.length; j++) {
+    var hh = String(headers[j] || '').trim();
+    if (!hh) continue;
+    if (
+      hh.indexOf('姓名') >= 0 ||
+      hh.indexOf('員工') >= 0 ||
+      /^name$/i.test(hh) ||
+      /employee/i.test(hh)
+    ) {
+      return j;
+    }
+  }
+  return -1;
+}
+
+/** 從資料內容推斷姓名欄位 */
+function detectNameColByData_(rows, targetName) {
+  if (!rows || !rows.length || !targetName) return -1;
+  var target = normName_(targetName);
+  for (var c = 0; c < (rows[0].v || []).length; c++) {
+    for (var r = 0; r < rows.length; r++) {
+      if (normName_(String(rows[r].v[c] || '')) === target) {
+        return c;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * 從表頭文字或日期字串猜日期（yyyy/mm/dd、mm/dd、yyyy年m月d日、m月d日）
+ * 回傳 'YYYY-MM-DD' 或空字串
+ */
+function guessISOFromHeaderText_(t) {
+  var s = String(t || '').trim();
+  if (!s) return '';
+
+  // yyyy/mm/dd 或 yyyy-mm-dd
+  var m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) {
+    var y = m[1];
+    var mo = ('0' + m[2]).slice(-2);
+    var d = ('0' + m[3]).slice(-2);
+    return y + '-' + mo + '-' + d;
+  }
+
+  // mm/dd 或 m/d（沒年份時用今年）
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) {
+    var year = String(new Date().getFullYear());
+    var mo2 = ('0' + m[1]).slice(-2);
+    var d2 = ('0' + m[2]).slice(-2);
+    return year + '-' + mo2 + '-' + d2;
+  }
+
+  // yyyy年m月d日 或 m月d日
+  m = s.match(/^(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日$/);
+  if (m) {
+    var yy = m[1] || String(new Date().getFullYear());
+    var mo3 = ('0' + m[2]).slice(-2);
+    var d3 = ('0' + m[3]).slice(-2);
+    return yy + '-' + mo3 + '-' + d3;
+  }
+
+  return '';
+}
+
+/**
+ * 根據前幾列內容自動判斷真正的欄位表頭所在列
+ * - 會綜合「是否包含姓名/部門關鍵字」、「是否有日期格式」、「非空欄位數」作評分
+ * - 目前只檢查前 3 列，回傳 0-based index
+ * - TAO3 這種上方只有一行大標題、下方才是正式表頭，會自動選下方該一列
+ */
+function detectHeaderRowIndex_(values) {
+  if (!values || !values.length) return 0;
+
+  var maxCheck = Math.min(values.length, 3);
+  var bestIdx = 0;
+  var bestScore = -9999;
+
+  for (var i = 0; i < maxCheck; i++) {
+    var row = values[i] || [];
+    var nonEmpty = 0;
+    var hasName = 0;
+    var hasDept = 0;
+    var dateCount = 0;
+
+    for (var j = 0; j < row.length; j++) {
+      var s = String(row[j] || '').trim();
+      if (!s) continue;
+      nonEmpty++;
+
+      if (
+        s.indexOf('姓名') >= 0 ||
+        /^name$/i.test(s) ||
+        s.indexOf('員工') >= 0
+      ) {
+        hasName = 1;
+      }
+      if (
+        s.indexOf('組別') >= 0 ||
+        s.indexOf('部門') >= 0 ||
+        /dept|department|group/i.test(s)
+      ) {
+        hasDept = 1;
+      }
+      if (guessISOFromHeaderText_(s)) {
+        dateCount++;
+      }
+    }
+
+    var score = nonEmpty + hasName * 5 + hasDept * 3 + dateCount * 2;
+
+    // 若只有一個欄位有字，而且僅是整表標題（欄數較多但只有第一格長字），稍扣分
+    if (nonEmpty === 1 && row.length >= 4 && String(row[0]).length > 4) {
+      score -= 3;
+    }
+
+    if (score > bestScore || (score === bestScore && i > bestIdx)) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+
+  return bestIdx;
+}
+
+/**
+ * 改進版：為「班表」分頁的資料列，依姓名＋日期掛上出勤旗標 + 直接計算出勤率
+ * row.att = [0,0,1,0,...] (哪些日期有出勤記錄)
+ * row.attRate = 0.95 (出勤率)
+ * row.attExpected = 20 (應到天數)
+ * row.attAttended = 19 (實到天數)
+ */
+function attachAttendanceFlagsForRows_(ss, sheetName, base, rows) {
+  if (!rows || !rows.length) return;
+  if (sheetName.indexOf('班表') < 0) return; // 只處理班表
+
+  var dateCols = base.dateCols || [];
+  if (!dateCols.length) return;
+
+  var headersISO = base.headersISO || [];
+  var headers = base.headers || [];
+  var nameCol = findNameCol_(headers);
+  if (nameCol < 0) return;
+
+  var attMap = buildAttendanceMap_(ss);
+
+  rows.forEach(function(row) {
+    var nm = String(row.v[nameCol] || '').trim();
+    if (!nm) return;
+
+    var att = [];
+    for (var i = 0; i < headers.length; i++) att[i] = 0;
+
+    var denom = 0;    // 應到
+    var absCnt = 0;   // 缺勤
+
+    dateCols.forEach(function(ci) {
+      var iso = headersISO[ci];
+      if (!iso) return;
+
+      var cellValue = row.v[ci] || '';
+      var cellStr = String(cellValue).trim();
+      var parsed = parseCellForRules_(cellValue);
+
+      // 設定出勤旗標
+      var key = nm + '|' + iso;
+      var hasRecord = attMap && attMap[key];
+      att[ci] = hasRecord ? 1 : 0;
+
+      // 計算出勤率
+      if (!parsed.excludeDen) {
+        denom += 1;
+
+        // 判斷是否缺勤：
+        // 1. 命中 excludeAbs → 不缺勤
+        // 2. 有出勤記錄 → 不缺勤
+        // 3. 格子有內容 → 不缺勤 (fallback)
+        // 4. 以上都不滿足 → 缺勤
+        var isAbsent = true;
+        if (parsed.excludeAbs) {
+          isAbsent = false;
+        } else if (hasRecord) {
+          isAbsent = false;
+        } else if (cellStr) {
+          // fallback: 有排班內容就算實到
+          isAbsent = false;
+        }
+        if (isAbsent) absCnt += 1;
+      }
+    });
+
+    row.att = att;
+    row.attExpected = denom;
+    row.attAttended = denom - absCnt;
+    row.attRate = denom > 0 ? (denom - absCnt) / denom : 0;
+  });
+}
+
+/**
+ * 建構出勤紀錄查詢 map： key = 姓名|YYYY-MM-DD → true
+ * 只抓分頁名稱含「出勤時數 / 出勤時間 / 出勤備份」
+ * ✅ 同樣支援「表頭 2 列」的出勤表：自動判斷真正表頭列
+ */
+function buildAttendanceMap_(ss) {
+  var map = {};
+
+  var sheets = ss.getSheets();
+  sheets.forEach(function(sh) {
+    var sn = sh.getName();
+
+    // 只要「分頁名稱內含」以下關鍵字之一就算出勤分頁
+    if (
+      sn.indexOf('出勤時數') < 0 &&
+      sn.indexOf('出勤時間') < 0 &&
+      sn.indexOf('出勤備份') < 0
+    ) {
+      return;
+    }
+
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) return;
+
+    var vals = sh.getRange(1, 1, lastRow, lastCol).getDisplayValues();
+
+    // 這裡亦用同一套判斷邏輯，支援表頭 1 或 2 列
+    var headerRowIndex = detectHeaderRowIndex_(vals);
+    var headers = vals[headerRowIndex] || [];
+
+    // 姓名欄
+    var nameCol = findNameCol_(headers);
+
+    // 日期欄：欄位名稱只要「包含『日期』兩個字」就算
+    var dateCol = -1;
+    for (var i = 0; i < headers.length; i++) {
+      var h = String(headers[i] || '').trim();
+      if (h.indexOf('日期') >= 0) {
+        dateCol = i;
+        break;
+      }
+    }
+
+    if (nameCol < 0 || dateCol < 0) return; // 這張表找不到姓名或日期，就跳過
+
+    for (var r = headerRowIndex + 1; r < vals.length; r++) {
+      var nm = String(vals[r][nameCol] || '').trim();
+      var ds = String(vals[r][dateCol] || '').trim();
+      if (!nm || !ds) continue;
+
+      // 先用 guessISOFromHeaderText_（吃 yyyy/mm/dd、m/d、yyyy年m月d日…）
+      var iso = guessISOFromHeaderText_(ds);
+
+      // 若上方沒解析出來，再靠 new Date() 解析
+      if (!iso) {
+        var d = new Date(ds);
+        if (!isNaN(d.getTime())) {
+          var y = d.getFullYear();
+          var mo = ('0' + (d.getMonth() + 1)).slice(-2);
+          var da = ('0' + d.getDate()).slice(-2);
+          iso = y + '-' + mo + '-' + da;
+        }
+      }
+
+      if (!iso) continue;
+
+      var key = nm + '|' + iso;
+      map[key] = true;
+    }
+  });
+
+  return map;
+}
+
+/**
+ * 快速查詢指定姓名的資料（大表用）
+ */
+function fastPayloadForName_(ss, sh, sheetName, name, lastRow, lastCol, frozenLeft) {
+  var maxCheck = Math.min(lastRow, 3);
+  var headVals = sh.getRange(1, 1, maxCheck, lastCol).getDisplayValues();
+  if (!headVals || !headVals.length) return null;
+
+  var headerRowIndex = detectHeaderRowIndex_(headVals);
+  var headers = headVals[headerRowIndex] || [];
+  var headersISO = headers.map(guessISOFromHeaderText_);
+
+  var dateCols = [];
+  for (var i = 0; i < headersISO.length; i++) {
+    if (headersISO[i]) dateCols.push(i);
+  }
+
+  var dataStartRow = headerRowIndex + 2;
+  if (dataStartRow > lastRow) {
+    return {
+      headers: headers,
+      headersISO: headersISO,
+      headersTop: headerRowIndex > 0 ? headVals[0] : [],
+      rows: [],
+      dateCols: dateCols,
+      frozenLeft: frozenLeft,
+      engine: 'fast',
+      counts: { rows: 0, cols: headers.length }
+    };
+  }
+
+  var nameCol = findNameCol_(headers);
+  if (nameCol < 0) return null;
+
+  var nameVals = sh.getRange(dataStartRow, nameCol + 1, lastRow - (dataStartRow - 1), 1).getDisplayValues();
+  var target = normName_(name);
+  var matchRows = [];
+  for (var r = 0; r < nameVals.length; r++) {
+    var cell = nameVals[r] && nameVals[r][0] != null ? String(nameVals[r][0]) : '';
+    if (!cell) continue;
+    if (normName_(cell) === target) {
+      matchRows.push(dataStartRow + r);
+    }
+  }
+
+  var rows = [];
+  if (matchRows.length) {
+    var minR = matchRows[0];
+    var maxR = matchRows[0];
+    var set = {};
+    for (var k = 0; k < matchRows.length; k++) {
+      var rr = matchRows[k];
+      set[rr] = true;
+      if (rr < minR) minR = rr;
+      if (rr > maxR) maxR = rr;
+    }
+
+    var rng = sh.getRange(minR, 1, maxR - minR + 1, lastCol);
+    var vals = rng.getDisplayValues();
+    var bgs = rng.getBackgrounds();
+    var fcs = rng.getFontColors();
+
+    for (var off = 0; off < vals.length; off++) {
+      var absRow = minR + off;
+      if (!set[absRow]) continue;
+      rows.push({
+        v: vals[off].map(function(x) { return String(x == null ? '' : x); }),
+        bg: bgs[off].slice(),
+        fc: fcs[off].slice()
+      });
+    }
+  }
+
+  var payload = {
+    headers: headers,
+    headersISO: headersISO,
+    headersTop: headerRowIndex > 0 ? headVals[0] : [],
+    rows: rows,
+    dateCols: dateCols,
+    frozenLeft: frozenLeft,
+    engine: 'fast',
+    counts: { rows: rows.length, cols: headers.length }
+  };
+
+  attachAttendanceFlagsForRows_(ss, sheetName, payload, rows);
+  return payload;
+}
+
+/**
+ * 統計所有倉別人數（不重複）- 修正版本
+ * 回傳格式：{ total: 總人數, details: [{warehouse: 倉別, month: 月份, count: 人數, leaveCount: 離職人數}, ...] }
+ */
+function getAllPeopleCount_() {
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'allPeopleCount_v3'; // 更新快取鍵
+  var cached = cache.get(cacheKey);
+
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  var allPeople = new Set();
+  var details = [];
+  var total = 0;
+
+  // 遍歷所有倉別
+  for (var warehouseKey in WAREHOUSE_IDS) {
+    try {
+      var ss = SpreadsheetApp.openById(WAREHOUSE_IDS[warehouseKey]);
+      var sheetNames = getSheetNames_(WAREHOUSE_IDS[warehouseKey]);
+
+      // 尋找所有班表分頁（名稱包含「班表」）
+      var scheduleSheets = [];
+      for (var i = 0; i < sheetNames.length; i++) {
+        if (sheetNames[i].indexOf('班表') >= 0) {
+          scheduleSheets.push(sheetNames[i]);
+        }
+      }
+
+      if (scheduleSheets.length === 0) {
+        details.push({
+          warehouse: warehouseKey,
+          month: '無班表',
+          count: 0,
+          leaveCount: 0
+        });
+        continue;
+      }
+
+      // 處理每個班表分頁
+      for (var j = 0; j < scheduleSheets.length; j++) {
+        var scheduleSheetName = scheduleSheets[j];
+        var sh = ss.getSheetByName(scheduleSheetName);
+        if (!sh) continue;
+
+        var lastRow = sh.getLastRow();
+        var lastCol = sh.getLastColumn();
+        if (lastRow < 2 || lastCol < 1) continue;
+
+        // 讀取資料
+        var data = readSheetToPayload_(sh, lastRow, lastCol);
+        var headers = data.headers;
+        var rows = data.rows;
+        var nameCol = findNameCol_(headers);
+
+        if (nameCol < 0) continue;
+
+        // 找出日期欄位
+        var dateCols = data.dateCols || [];
+
+        var warehousePeople = new Set();
+        var leavePeople = new Set();
+
+        for (var k = 0; k < rows.length; k++) {
+          var name = String(rows[k].v[nameCol] || '').trim();
+          if (!name) continue;
+
+          // ✅ 修正：檢查所有日期欄位中是否有「離」文字
+          var isLeave = false;
+          for (var d = 0; d < dateCols.length; d++) {
+            var cellValue = String(rows[k].v[dateCols[d]] || '').trim();
+            // 檢查是否包含「離」字
+            if (cellValue.indexOf('離') >= 0) {
+              isLeave = true;
+              break;
+            }
+          }
+
+          // ✅ 修正：檢查其他欄位（非日期欄位）是否包含「離」字
+          if (!isLeave) {
+            for (var col = 0; col < rows[k].v.length; col++) {
+              // 跳過日期欄位（已經檢查過）
+              if (dateCols.indexOf(col) >= 0) continue;
+
+              var otherCellValue = String(rows[k].v[col] || '').trim();
+              if (otherCellValue.indexOf('離') >= 0) {
+                isLeave = true;
+                break;
+              }
+            }
+          }
+
+          if (isLeave) {
+            leavePeople.add(name);
+          } else {
+            warehousePeople.add(name);
+          }
+          allPeople.add(warehouseKey + '_' + name); // 加入倉別前綴避免跨倉重複
+        }
+
+        // 提取月份資訊（從分頁名稱）
+        var month = '其他月份';
+        var sheetNameMatch = scheduleSheetName.match(/(\d{1,2})月/);
+        if (sheetNameMatch) {
+          month = sheetNameMatch[1] + '月';
+        } else if (scheduleSheetName.indexOf('班表') >= 0) {
+          // 如果沒有月份資訊，使用分頁名稱
+          month = scheduleSheetName.replace('班表', '').trim() || '班表';
+        }
+
+        details.push({
+          warehouse: warehouseKey,
+          month: month,
+          count: warehousePeople.size + leavePeople.size, // 總人數（含離職）
+          leaveCount: leavePeople.size,
+          activeCount: warehousePeople.size
+        });
+      }
+
+    } catch (e) {
+      console.error('Error processing warehouse ' + warehouseKey + ': ' + e.toString());
+      details.push({
+        warehouse: warehouseKey,
+        month: '錯誤',
+        count: 0,
+        leaveCount: 0,
+        error: e.toString()
+      });
+    }
+  }
+
+  total = allPeople.size;
+
+  var result = {
+    total: total,
+    details: details
+  };
+
+  // 快取 5 分鐘
+  cache.put(cacheKey, JSON.stringify(result), 300);
+
+  return result;
+}
+
+/**
+ * 取得當前分頁的人數統計（分頁人數與離職人數）
+ * ✅ 修正：只統計當前分頁，而不是所有倉別
+ */
+function getCurrentSheetPeopleCount(sheetName, spreadsheetId) {
+  try {
+    var ss = SpreadsheetApp.openById(spreadsheetId);
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh) {
+      return { total: 0, leave: 0, error: '找不到分頁' };
+    }
+
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) {
+      return { total: 0, leave: 0 };
+    }
+
+    // 讀取資料
+    var data = readSheetToPayload_(sh, lastRow, lastCol);
+    var headers = data.headers;
+    var rows = data.rows;
+    var nameCol = findNameCol_(headers);
+
+    if (nameCol < 0) {
+      return { total: 0, leave: 0, error: '找不到姓名欄位' };
+    }
+
+    var peopleSet = new Set();
+    var leaveSet = new Set();
+
+    for (var i = 0; i < rows.length; i++) {
+      var name = String(rows[i].v[nameCol] || '').trim();
+      if (!name) continue;
+
+      // ✅ 檢查是否離職：檢查該行所有欄位是否包含「離」字
+      var isLeave = false;
+
+      // 檢查所有欄位
+      for (var col = 0; col < rows[i].v.length; col++) {
+        var cellValue = String(rows[i].v[col] || '').trim();
+        if (cellValue.indexOf('離') >= 0) {
+          isLeave = true;
+          break;
+        }
+      }
+
+      if (isLeave) {
+        leaveSet.add(name);
+      } else {
+        peopleSet.add(name);
+      }
+    }
+
+    var totalPeople = peopleSet.size + leaveSet.size;
+
+    return {
+      total: totalPeople,
+      leave: leaveSet.size,
+      active: peopleSet.size,
+      success: true
+    };
+
+  } catch (e) {
+    return { total: 0, leave: 0, error: e.toString() };
+  }
+}
