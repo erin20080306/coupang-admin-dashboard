@@ -402,6 +402,54 @@ function tokenizeCell(raw: unknown): string[] {
     .filter(Boolean);
 }
 
+function pickAttendanceSheets(pages: string[]): string[] {
+  const list = Array.isArray(pages) ? pages : [];
+  const candidates = ['出勤時數', '出勤時間', '出勤備份'];
+  const out: string[] = [];
+  for (const key of candidates) {
+    const hit = list.find((p) => String(p || '').trim() === key) || list.find((p) => String(p || '').includes(key));
+    if (hit && !out.includes(hit)) out.push(hit);
+  }
+  return out;
+}
+
+async function buildPresentSetFromAttendanceSheets(
+  warehouse: string,
+  pages: string[],
+  apiName: string,
+  names: Set<string>
+): Promise<Set<string> | null> {
+  const sources = pickAttendanceSheets(pages);
+  if (!sources.length) return null;
+
+  const payloads = await Promise.all(
+    sources.map(async (sheet) => {
+      try {
+        return await gasQuerySheet(warehouse, sheet, apiName);
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  const present = new Set<string>();
+  for (const payload of payloads) {
+    if (!payload) continue;
+    const { headers, rows } = gasPayloadToRows(payload, { disableAttendance: true, sheetName: '' });
+    const dateKey = findDateKey(headers);
+    if (!dateKey) continue;
+    for (const r of rows) {
+      const nm = getNameFromRow(r as any);
+      if (!nm) continue;
+      if (names.size && !names.has(nm)) continue;
+      const iso = guessISOFromText(String((r as any)[dateKey] ?? '').trim());
+      if (!iso) continue;
+      present.add(`${nm}|${iso}`);
+    }
+  }
+  return present;
+}
+
 /** 排除分母（應到）的項目 - 對應舊版 EXCLUDE_FROM_DENOM */
 const EXCLUDE_FROM_DENOM = new Set<string>([
   '例', '例假', '例假日', '例休',
@@ -680,9 +728,6 @@ export default function DashboardPage() {
   const useGas = gasIsConfigured();
   const user = getUser();
   const isAdmin = Boolean(user?.isAdmin);
-  
-  // DEBUG: 組件載入時輸出
-  console.log('[DashboardPage] useGas:', useGas, 'user:', user);
 
   const [availablePages, setAvailablePages] = useState<string[]>(mockPages);
   const [query, setQuery] = useState<QueryParams>({
@@ -746,6 +791,7 @@ export default function DashboardPage() {
 
   const [attWorstSourcePage, setAttWorstSourcePage] = useState<string>('');
   const [attAll, setAttAll] = useState<Array<{ id: string; name: string; summary: AttendanceSummary }>>([]);
+  const [attPresentSet, setAttPresentSet] = useState<Set<string> | null>(null);
 
   const attendanceAllAgg = useMemo(() => {
     let expected = 0;
@@ -759,7 +805,6 @@ export default function DashboardPage() {
       n += 1;
     }
     const rate = expected ? attended / expected : 0;
-    console.log('[attendanceAllAgg] n:', n, 'expected:', expected, 'attended:', attended, 'rate:', rate, 'rows.length:', rows.length);
     return { expected, attended, rate, n };
   }, [rows]);
 
@@ -837,6 +882,13 @@ export default function DashboardPage() {
         return;
       }
 
+      const namesForPage = new Set<string>();
+      gasRows.forEach((r) => {
+        const nm = getNameFromRow(r);
+        if (nm) namesForPage.add(nm);
+      });
+      const presentSetForPage = await buildPresentSetFromAttendanceSheets(query.warehouse, availablePages, apiName, namesForPage);
+
       const byName = new Map<string, GasRecordRow[]>();
       gasRows.forEach((r) => {
         const nm = getNameFromRow(r);
@@ -847,14 +899,7 @@ export default function DashboardPage() {
 
       const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
       byName.forEach((personRows, nm) => {
-        // 合併該人所有列的 _att 建立 presentSet
-        const presentSet = new Set<string>();
-        for (const row of personRows) {
-          const rowSet = buildPresentSetFromAtt(row, effectiveDateCols, headersISO, nm);
-          rowSet.forEach((k) => presentSet.add(k));
-        }
-
-        // 使用第一列計算出勤率（日期欄位相同）
+        const presentSet = presentSetForPage || buildPresentSetFromAtt(personRows[0], effectiveDateCols, headersISO, nm);
         const summary = calcRowAttendance(personRows[0], effectiveDateCols, headers, headersISO, presentSet, nm);
         if (summary.expected === 0) return;
 
@@ -947,9 +992,6 @@ export default function DashboardPage() {
   }, [useGas, query.page, attAll]);
 
   useEffect(() => {
-    // DEBUG: 檢查 doQuery 調用條件
-    console.log('[useEffect doQuery] useGas:', useGas, 'user:', !!user, 'status:', status, 'query.page:', query.page);
-    
     if (!useGas) return;
     if (!user) return;
     if (status === 'loading') return;
@@ -961,13 +1003,9 @@ export default function DashboardPage() {
   const columns = useMemo(() => {
     if (useGas && gasHeaders.length) {
       if (isHoursPage) {
-        const cols = buildGasColumnsNoAttendance(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
-        console.log('[columns] isHoursPage, cols.length:', cols.length, 'last col:', cols[cols.length-1]?.header);
-        return cols;
+        return buildGasColumnsNoAttendance(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
       }
-      const cols = buildGasColumns(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
-      console.log('[columns] buildGasColumns, cols.length:', cols.length, 'last col:', cols[cols.length-1]?.header);
-      return cols;
+      return buildGasColumns(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
     }
     return buildMockColumns() as unknown as ColumnDef<DisplayRow>[];
   }, [useGas, gasHeaders, isHoursPage]);
@@ -1007,16 +1045,12 @@ export default function DashboardPage() {
         const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
         setGasHeadersISO(headersISO);
         let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
-        
-        // DEBUG
-        console.log('[doQuery] payload.dateCols:', payload.dateCols, 'headersISO sample:', headersISO.slice(0, 10));
-        
+
         // 如果 dateCols 是空的，從 headersISO 推測日期欄
         if (!dateCols.length && headersISO.length) {
           dateCols = headersISO
             .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
             .filter((i) => i >= 0);
-          console.log('[doQuery] inferred dateCols:', dateCols);
         }
         setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
@@ -1027,22 +1061,31 @@ export default function DashboardPage() {
         setGasHeaders(headers);
 
         const isSchedulePage = query.page.includes('班表');
-        
+
+        let presentSetForPage: Set<string> | null = null;
+        if (!isHoursPage && isSchedulePage && dateCols.length) {
+          const names = new Set<string>();
+          gasRows.forEach((r) => {
+            const nm = getNameFromRow(r as any);
+            if (nm) names.add(nm);
+          });
+          presentSetForPage = await buildPresentSetFromAttendanceSheets(query.warehouse, availablePages, apiName, names);
+          setAttPresentSet(presentSetForPage);
+        } else {
+          setAttPresentSet(null);
+        }
+
         // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
         gasRows.forEach((row) => {
-          // 如果已經有 _attendance，跳過
           if ((row as any)._attendance) return;
-
           const nm = getNameFromRow(row as any);
-          
-          // 只有班表分頁才計算實際出勤率
+
           if (!isHoursPage && isSchedulePage && dateCols.length) {
-            const presentSet = buildPresentSetFromAtt(row, dateCols, headersISO, nm);
+            const presentSet = presentSetForPage || buildPresentSetFromAtt(row, dateCols, headersISO, nm);
             const att = calcRowAttendance(row, dateCols, headers, headersISO, presentSet, nm);
             (row as any)._attendance = att;
             (row as any)._attendanceRate = att.rate;
           } else {
-            // 非班表分頁設定空的出勤率
             (row as any)._attendance = { rate: 0, attended: 0, expected: 0, status: 'normal' as const };
             (row as any)._attendanceRate = 0;
           }
@@ -1296,12 +1339,7 @@ export default function DashboardPage() {
         })();
 
     function computeForCols(colIndices: number[]) {
-      // 合併該人所有列的 _att 建立 presentSet
-      const presentSet = new Set<string>();
-      for (const row of personRows) {
-        const rowSet = buildPresentSetFromAtt(row, colIndices, gasHeadersISO, targetName);
-        rowSet.forEach((k) => presentSet.add(k));
-      }
+      const presentSet = attPresentSet || buildPresentSetFromAtt(personRows[0], colIndices, gasHeadersISO, targetName);
       const att = calcRowAttendance(personRows[0], colIndices, gasHeaders, gasHeadersISO, presentSet, targetName);
       const absent = att.expected - att.attended;
       const rate = att.expected > 0 ? (att.attended / att.expected) * 100 : null;
@@ -1374,12 +1412,7 @@ export default function DashboardPage() {
     });
 
     function computeForCols(personRows: GasRecordRow[], colIndices: number[], nm: string) {
-      // 合併該人所有列的 _att 建立 presentSet
-      const presentSet = new Set<string>();
-      for (const row of personRows) {
-        const rowSet = buildPresentSetFromAtt(row, colIndices, gasHeadersISO, nm);
-        rowSet.forEach((k) => presentSet.add(k));
-      }
+      const presentSet = attPresentSet || buildPresentSetFromAtt(personRows[0], colIndices, gasHeadersISO, nm);
       const att = calcRowAttendance(personRows[0], colIndices, gasHeaders, gasHeadersISO, presentSet, nm);
       const rate = att.expected > 0 ? (att.attended / att.expected) * 100 : null;
       return { shouldDays: att.expected, actDays: att.attended, rate };
