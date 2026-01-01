@@ -1022,6 +1022,7 @@ export default function DashboardPage() {
     if (!availablePages.length) return;
     if (isHoursPage) return;
     if (!isAttPage) return;
+    if (query.page.includes('班表')) return;
 
     const t = window.setTimeout(() => {
       void refreshWorstAttendance();
@@ -1183,6 +1184,22 @@ export default function DashboardPage() {
             rawRow._attendance = a;
             rawRow._attendanceRate = a.rate;
           });
+
+          const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
+          const seen = new Set<string>();
+          filteredRows.forEach((row) => {
+            const nm = getNameFromRow(row as any);
+            if (!nm) return;
+            if (seen.has(nm)) return;
+            const a = (row as any)._attendance as AttendanceSummary | undefined;
+            if (!a) return;
+            if (a.expected === 0) return;
+            seen.add(nm);
+            list.push({ id: `att_${nm}`, name: nm, summary: a });
+          });
+          list.sort((a, b) => a.summary.rate - b.summary.rate);
+          setAttWorstSourcePage(query.page);
+          setAttAll(list);
         }
 
         if (!filteredRows.length) {
