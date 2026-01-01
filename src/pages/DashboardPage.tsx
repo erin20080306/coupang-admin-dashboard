@@ -947,6 +947,9 @@ export default function DashboardPage() {
         const isSchedulePage = query.page.includes('班表');
 
         // 班表分頁：補算出勤率（即使 dateCols 為空也要設定 _attendance）
+        // DEBUG: 輸出調試資訊
+        console.log('[出勤率補算] isHoursPage:', isHoursPage, 'isSchedulePage:', isSchedulePage, 'headers.length:', headers.length, 'dateCols.length:', dateCols.length, 'gasRows.length:', gasRows.length);
+
         if (!isHoursPage && isSchedulePage && headers.length) {
           const exclude = buildExcludeForAttRateSet();
 
