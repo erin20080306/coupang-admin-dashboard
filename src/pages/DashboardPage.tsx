@@ -937,7 +937,7 @@ export default function DashboardPage() {
   async function refreshWorstAttendance() {
     if (!useGas) return;
     if (!user) return;
-    const source = pickWorstSourceSheet(query.warehouse, availablePages);
+    const source = query.page.includes('班表') ? query.page : pickWorstSourceSheet(query.warehouse, availablePages);
     if (!source) {
       setAttWorstSourcePage('');
       setAttAll([]);
@@ -1028,7 +1028,7 @@ export default function DashboardPage() {
     }, 450);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useGas, user?.name, isAdmin, query.warehouse, availablePages.join('|'), isHoursPage, isAttPage]);
+  }, [useGas, user?.name, isAdmin, query.warehouse, query.page, availablePages.join('|'), isHoursPage, isAttPage]);
 
   useEffect(() => {
     if (!useGas) return;
