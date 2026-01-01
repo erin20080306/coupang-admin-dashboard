@@ -601,9 +601,14 @@ function buildGasColumnsNoAttendance(headers: string[]): ColumnDef<GasRecordRow>
     }));
 
   cols.push({
-    key: '_attendance' as any,
-    header: '出勤',
-    render: () => '本業不計算出勤',
+    key: '_attendanceRate' as any,
+    header: '出勤率',
+    sortable: true,
+    render: (r: GasRecordRow) => {
+      const a = (r as any)._attendance as AttendanceSummary | undefined;
+      if (!a) return '—';
+      return `${Math.round(a.rate * 100)}% (${a.attended}/${a.expected})`;
+    },
   });
 
   return cols;
