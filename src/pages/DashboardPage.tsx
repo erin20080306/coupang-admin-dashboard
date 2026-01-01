@@ -23,6 +23,29 @@ function getAttendanceFromRow(r: DisplayRow): AttendanceSummary | undefined {
   return undefined;
 }
 
+function getRawNameFromRow(r: DisplayRow): string {
+  const direct = [
+    (r as any).name,
+    (r as any)['姓名'],
+    (r as any)['員工姓名'],
+    (r as any)['中文姓名'],
+    (r as any)['姓名(中文)'],
+    (r as any)['姓名 '],
+  ];
+  for (const v of direct) {
+    const s = String(v ?? '').trim();
+    if (s) return s;
+  }
+  // 最後保底：掃描所有欄位 key 含「姓名」
+  for (const [k, v] of Object.entries(r as any)) {
+    if (!k) continue;
+    if (!String(k).includes('姓名')) continue;
+    const s = String(v ?? '').trim();
+    if (s) return s;
+  }
+  return '';
+}
+
 function DeptKpi({
   rows,
   headers,
@@ -384,8 +407,8 @@ function LeaveStatPanel({
 }
 
 function getNameFromRow(r: DisplayRow): string {
-  const v = (r as any).name ?? (r as any)['姓名'] ?? '';
-  return String(v || '').trim() || '（未命名）';
+  const raw = getRawNameFromRow(r);
+  return raw || '（未命名）';
 }
 
 function rowHasLeaveToken(r: DisplayRow): boolean {
@@ -436,10 +459,30 @@ async function buildPresentSetFromAttendanceSheets(
   for (const payload of payloads) {
     if (!payload) continue;
     const { headers, rows } = gasPayloadToRows(payload, { disableAttendance: true, sheetName: '' });
-    const dateKey = findDateKey(headers);
+    let dateKey = findDateKey(headers);
+    // 若找不到日期欄，嘗試用資料內容推斷（找一個欄位有可 parse 成 ISO 的值）
+    if (!dateKey && rows.length) {
+      const sample = rows.slice(0, 30);
+      for (const h of headers) {
+        const hk = String(h || '').trim();
+        if (!hk) continue;
+        let hit = false;
+        for (const r of sample) {
+          const iso = guessISOFromText(String((r as any)[hk] ?? '').trim());
+          if (iso) {
+            hit = true;
+            break;
+          }
+        }
+        if (hit) {
+          dateKey = hk;
+          break;
+        }
+      }
+    }
     if (!dateKey) continue;
     for (const r of rows) {
-      const nm = getNameFromRow(r as any);
+      const nm = getRawNameFromRow(r as any);
       if (!nm) continue;
       if (names.size && !names.has(nm)) continue;
       const iso = guessISOFromText(String((r as any)[dateKey] ?? '').trim());
@@ -594,7 +637,18 @@ function findShiftKey(headers: string[]): string | null {
 function guessISOFromText(s: string): string {
   const t = String(s || '').trim();
   if (!t) return '';
-  let m = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  // 允許帶時間：2025-12-01 08:00:00
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // 允許帶時間：2025/12/01 08:00
+  m = t.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (m) {
+    const y = m[1];
+    const mo = (`0${m[2]}`).slice(-2);
+    const d = (`0${m[3]}`).slice(-2);
+    return `${y}-${mo}-${d}`;
+  }
+  m = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (m) {
     const y = m[1];
     const mo = (`0${m[2]}`).slice(-2);
@@ -1018,16 +1072,17 @@ export default function DashboardPage() {
 
     const hit = PAGES_CACHE.get(warehouse);
     if (hit && Date.now() - hit.ts < PAGES_CACHE_MS) {
-      const pages = hit.pages;
-      setAvailablePages(pages.length ? pages : mockPages);
-      setQuery((s) => ({ ...s, page: pages.includes(s.page) ? s.page : (pages[0] || s.page) }));
+      const clean = (hit.pages || []).map((p) => String(p ?? '').trim()).filter(Boolean);
+      setAvailablePages(clean.length ? clean : mockPages);
+      setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (clean[0] || s.page) }));
       return;
     }
     try {
       const pages = await gasGetSheets(warehouse);
-      PAGES_CACHE.set(warehouse, { ts: Date.now(), pages });
-      setAvailablePages(pages.length ? pages : mockPages);
-      setQuery((s) => ({ ...s, page: pages[0] || s.page }));
+      const clean = (pages || []).map((p) => String(p ?? '').trim()).filter(Boolean);
+      PAGES_CACHE.set(warehouse, { ts: Date.now(), pages: clean });
+      setAvailablePages(clean.length ? clean : mockPages);
+      setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (clean[0] || s.page) }));
     } catch {
       setAvailablePages(mockPages);
     }
@@ -1066,7 +1121,7 @@ export default function DashboardPage() {
         if (!isHoursPage && isSchedulePage && dateCols.length) {
           const names = new Set<string>();
           gasRows.forEach((r) => {
-            const nm = getNameFromRow(r as any);
+            const nm = getRawNameFromRow(r as any);
             if (nm) names.add(nm);
           });
           presentSetForPage = await buildPresentSetFromAttendanceSheets(query.warehouse, availablePages, apiName, names);
@@ -1078,9 +1133,14 @@ export default function DashboardPage() {
         // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
         gasRows.forEach((row) => {
           if ((row as any)._attendance) return;
-          const nm = getNameFromRow(row as any);
+          const nm = getRawNameFromRow(row as any);
 
           if (!isHoursPage && isSchedulePage && dateCols.length) {
+            if (!nm) {
+              (row as any)._attendance = { rate: 0, attended: 0, expected: 0, status: 'normal' as const };
+              (row as any)._attendanceRate = 0;
+              return;
+            }
             const presentSet = presentSetForPage || buildPresentSetFromAtt(row, dateCols, headersISO, nm);
             const att = calcRowAttendance(row, dateCols, headers, headersISO, presentSet, nm);
             (row as any)._attendance = att;
