@@ -1064,10 +1064,15 @@ export default function DashboardPage() {
           (row as any)._attendanceRate = rate;
         });
         
-        // DEBUG: 檢查第一列的 _attendance
+        // DEBUG: 檢查第一列的 _attendance（詳細）
         if (gasRows.length) {
           const first = gasRows[0] as any;
-          console.log('[doQuery] first row _attendance:', first._attendance, 'name:', getNameFromRow(first as any));
+          const att = first._attendance;
+          console.log('[doQuery] first row _attendance:', att, 'expected:', att?.expected, 'attended:', att?.attended, 'name:', getNameFromRow(first as any));
+          // 統計有 expected > 0 的列數
+          let withExpected = 0;
+          gasRows.forEach((r: any) => { if (r._attendance?.expected > 0) withExpected++; });
+          console.log('[doQuery] rows with expected > 0:', withExpected, '/', gasRows.length);
         }
 
         if (!gasRows.length) {
