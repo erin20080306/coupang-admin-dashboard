@@ -670,6 +670,9 @@ export default function DashboardPage() {
   const useGas = gasIsConfigured();
   const user = getUser();
   const isAdmin = Boolean(user?.isAdmin);
+  
+  // DEBUG: 組件載入時輸出
+  console.log('[DashboardPage] useGas:', useGas, 'user:', user);
 
   const [availablePages, setAvailablePages] = useState<string[]>(mockPages);
   const [query, setQuery] = useState<QueryParams>({
@@ -946,6 +949,9 @@ export default function DashboardPage() {
   }, [useGas, query.page, attAll]);
 
   useEffect(() => {
+    // DEBUG: 檢查 doQuery 調用條件
+    console.log('[useEffect doQuery] useGas:', useGas, 'user:', !!user, 'status:', status, 'query.page:', query.page);
+    
     if (!useGas) return;
     if (!user) return;
     if (status === 'loading') return;
