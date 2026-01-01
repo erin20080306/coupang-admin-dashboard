@@ -427,7 +427,11 @@ function tokenizeCell(raw: unknown): string[] {
 
 function pickAttendanceSheets(pages: string[]): string[] {
   const list = Array.isArray(pages) ? pages : [];
-  const candidates = ['出勤時數', '出勤時間', '出勤備份'];
+  // 更寬鬆的候選名稱
+  const candidates = [
+    '出勤時數', '出勤時間', '出勤備份', '出勤記錄', '出勤紀律',
+    '簽到記錄', '打卡記錄', '實際出勤', '出勤明細'
+  ];
   const out: string[] = [];
   for (const key of candidates) {
     const hit = list.find((p) => String(p || '').trim() === key) || list.find((p) => String(p || '').includes(key));
@@ -545,9 +549,19 @@ function calcRowAttendance(
   let denom = 0; // 應到
   let absCnt = 0; // 缺勤
 
+  // 取得 _att 陣列作為 fallback
+  const attArr = (row as any)._att as number[] | undefined;
+  const hasPresentSet = presentSet && presentSet.size > 0;
+  const hasAttArr = Array.isArray(attArr) && attArr.length > 0;
+
   for (const ci of dateCols) {
-    const iso = headersISO[ci];
+    // 先嘗試用 headersISO，若為空則用 header 名稱推斷
+    let iso = headersISO[ci];
+    if (!iso) {
+      iso = guessISOFromText(headers[ci] || '');
+    }
     if (!iso) continue;
+
     const hk = headers[ci];
     if (!hk) continue;
     const cellValue = (row as any)[hk];
@@ -556,8 +570,20 @@ function calcRowAttendance(
     if (!parsed.excludeDen) {
       denom += 1;
       const key = `${name}|${iso}`;
-      // 不命中 EXCLUDE_FROM_ABS 且不在 presentSet → 缺勤
-      const isAbsent = !parsed.excludeAbs && (!presentSet || !presentSet.has(key));
+
+      // 判斷是否缺勤：
+      // 1. 命中 excludeAbs → 不缺勤
+      // 2. presentSet 有資料且包含 key → 不缺勤
+      // 3. presentSet 為空但 _att 有資料且 att[ci]=1 → 不缺勤
+      // 4. 以上都不滿足 → 缺勤
+      let isAbsent = true;
+      if (parsed.excludeAbs) {
+        isAbsent = false;
+      } else if (hasPresentSet && presentSet!.has(key)) {
+        isAbsent = false;
+      } else if (!hasPresentSet && hasAttArr && attArr![ci]) {
+        isAbsent = false;
+      }
       if (isAbsent) absCnt += 1;
     }
   }
