@@ -583,7 +583,7 @@ function buildGasColumns(headers: string[]): ColumnDef<GasRecordRow>[] {
     sortable: true,
     render: (r: GasRecordRow) => {
       const a = (r as any)._attendance as AttendanceSummary | undefined;
-      if (!a) return '';
+      if (!a) return '—';
       return `${Math.round(a.rate * 100)}% (${a.attended}/${a.expected})`;
     },
   });
@@ -947,13 +947,9 @@ export default function DashboardPage() {
         const isSchedulePage = query.page.includes('班表');
 
         // 班表分頁：補算出勤率（即使 dateCols 為空也要設定 _attendance）
-        // DEBUG: 輸出調試資訊
-        console.log('[出勤率補算] isHoursPage:', isHoursPage, 'isSchedulePage:', isSchedulePage, 'headers.length:', headers.length, 'dateCols.length:', dateCols.length, 'gasRows.length:', gasRows.length);
-
         if (!isHoursPage && isSchedulePage && headers.length) {
           const exclude = buildExcludeForAttRateSet();
 
-          let processedCount = 0;
           gasRows.forEach((row) => {
             const nm = getNameFromRow(row);
             if (!nm) return;
@@ -977,16 +973,7 @@ export default function DashboardPage() {
             const rate = expected > 0 ? attended / expected : 0;
             (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
             (row as any)._attendanceRate = rate;
-            processedCount++;
           });
-          console.log('[出勤率補算] 已處理', processedCount, '筆資料');
-          
-          // 檢查第一筆資料的 _attendance
-          if (gasRows.length > 0) {
-            const firstRow = gasRows[0];
-            const attendance = (firstRow as any)._attendance;
-            console.log('[出勤率補算] 第一筆資料 _attendance:', attendance);
-          }
         }
 
         if (!gasRows.length) {
