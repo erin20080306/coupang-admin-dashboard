@@ -466,10 +466,33 @@ function isShouldAttendCell(raw: unknown, exclude: Set<string>): boolean {
   return !toks.some((t) => exclude.has(t));
 }
 
-function isActualAttendCell(colIndex: number, row: GasRecordRow): boolean {
+/**
+ * 判斷某一格是否「實到」：
+ * 1. 優先看 _att 陣列（GAS 後端從出勤時數/時間/備份分頁建立）
+ * 2. 若 _att 不存在或全 0，fallback 用格子內容判斷：
+ *    - 格子有內容且不是排除項（休/例/離等）→ 算實到
+ */
+function isActualAttendCell(
+  colIndex: number,
+  row: GasRecordRow,
+  headers?: string[],
+  exclude?: Set<string>
+): boolean {
   const att = (row as any)._att as number[] | undefined;
-  if (!Array.isArray(att)) return false;
-  return Boolean(att[colIndex]);
+  // 若 _att 有值且該欄為 1，直接回傳 true
+  if (Array.isArray(att) && att[colIndex]) return true;
+
+  // fallback：用格子內容判斷
+  if (!headers || !exclude) return false;
+  const hk = headers[colIndex];
+  if (!hk) return false;
+  const cellVal = (row as any)[hk];
+  const s = (cellVal == null ? '' : String(cellVal)).trim();
+  if (!s) return false; // 空格 = 沒出勤
+  // 有內容但命中排除項 = 不算出勤
+  const toks = tokenizeCell(s);
+  if (toks.some((t) => exclude.has(t))) return false;
+  return true; // 有內容且不是排除項 = 實到
 }
 
 function findShiftKey(headers: string[]): string | null {
@@ -782,7 +805,7 @@ export default function DashboardPage() {
 
             const iso = String(headersISO?.[ci] || '').trim() || String(hk || '').trim() || String(ci);
             expectedSet.add(iso);
-            if (isActualAttendCell(ci, row)) attendedSet.add(iso);
+            if (isActualAttendCell(ci, row, headers, exclude)) attendedSet.add(iso);
           }
         }
 
@@ -950,7 +973,6 @@ export default function DashboardPage() {
 
             let expected = 0;
             let attended = 0;
-            const attArr = (row as any)._att as number[] | undefined;
 
             for (const ci of dateCols) {
               const hk = headers[ci];
@@ -958,7 +980,7 @@ export default function DashboardPage() {
               if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
               expected += 1;
 
-              if (Array.isArray(attArr) && attArr[ci]) attended += 1;
+              if (isActualAttendCell(ci, row, headers, exclude)) attended += 1;
             }
 
             if (!expected) return;
@@ -1226,7 +1248,7 @@ export default function DashboardPage() {
           if (!hk || !String(hk).trim()) return;
           if (!isShouldAttendCell((row as any)[hk], exclude)) return;
           shouldDays += 1;
-          if (isActualAttendCell(ci, row)) actDays += 1;
+          if (isActualAttendCell(ci, row, gasHeaders, exclude)) actDays += 1;
         });
       });
       const absent = shouldDays - actDays;
@@ -1309,7 +1331,7 @@ export default function DashboardPage() {
           if (!hk || !String(hk).trim()) return;
           if (!isShouldAttendCell((row as any)[hk], exclude)) return;
           shouldDays += 1;
-          if (isActualAttendCell(ci, row)) actDays += 1;
+          if (isActualAttendCell(ci, row, gasHeaders, exclude)) actDays += 1;
         });
       });
       const rate = shouldDays > 0 ? (actDays / shouldDays) * 100 : null;
