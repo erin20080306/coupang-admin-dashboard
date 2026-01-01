@@ -403,57 +403,77 @@ function tokenizeCell(raw: unknown): string[] {
 }
 
 /** 排除分母（應到）的項目 - 對應舊版 EXCLUDE_FROM_DENOM */
-function buildExcludeForAttRateSet(): Set<string> {
-  return new Set<string>([
-    '例',
-    '例假',
-    '例假日',
-    '例休',
-    '休',
-    '休假',
-    '休假日',
-    '國',
-    '離',
-    '調倉',
-    '調任',
-    '轉正',
-  ]);
-}
+const EXCLUDE_FROM_DENOM = new Set<string>([
+  '例', '例假', '例假日', '例休',
+  '休', '休假', '休假日',
+  '國', '離', '調倉', '調任', '轉正',
+]);
 
 /** 排除缺勤（自動算實到）的項目 - 對應舊版 EXCLUDE_FROM_ABS */
-function buildExcludeFromAbsSet(): Set<string> {
-  return new Set<string>([
-    '例',
-    '例假',
-    '例假日',
-    '例休',
-    '休',
-    '休假',
-    '休假日',
-    '國',
-    '離',
-    '調倉',
-    '調任',
-    '轉正',
-    '未',
-    '特',
-  ]);
-}
+const EXCLUDE_FROM_ABS = new Set<string>([
+  '例', '例假', '例假日', '例休',
+  '休', '休假', '休假日',
+  '國', '離', '調倉', '調任', '轉正',
+  '未', '特',
+]);
 
-/** 純英數字（無中文）判斷 */
 const ALNUM_RE = /^[A-Za-z0-9]+$/;
 const HAS_CJK_RE = /[\u4e00-\u9fff]/;
 
-/** 判斷單元格是否「自動算實到」（命中 EXCLUDE_FROM_ABS 或純英數字） */
-function isAutoAttendCell(raw: unknown, excludeAbs: Set<string>): boolean {
-  const s = (raw == null ? '' : String(raw)).trim();
-  if (!s) return false;
-  const tokens = tokenizeCell(s);
-  // 命中排除缺勤項目
-  if (tokens.some((t) => excludeAbs.has(t))) return true;
-  // 純英數字（無中文）
-  if (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0])) return true;
-  return false;
+/**
+ * 計算單一格的規則（參照舊版 parseCellForRules）
+ * @returns excludeDen: 排除應到, excludeAbs: 排除缺勤（自動算實到）
+ */
+function parseCellForRules(cell: unknown): { excludeDen: boolean; excludeAbs: boolean } {
+  const raw = (cell == null ? '' : String(cell)).trim();
+  if (!raw) return { excludeDen: false, excludeAbs: false };
+  const tokens = tokenizeCell(raw);
+  const excludeDen = tokens.some((t) => EXCLUDE_FROM_DENOM.has(t));
+  const excludeAbs = tokens.some((t) => EXCLUDE_FROM_ABS.has(t)) ||
+    (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
+  return { excludeDen, excludeAbs };
+}
+
+/**
+ * 計算單一列的出勤率（參照舊版 HTML 邏輯）
+ * @param row - GAS 列資料
+ * @param dateCols - 日期欄位索引
+ * @param headers - 表頭
+ * @param headersISO - 表頭 ISO 日期
+ * @param presentSet - 實到集合（姓名|日期）
+ * @param name - 姓名
+ */
+function calcRowAttendance(
+  row: GasRecordRow,
+  dateCols: number[],
+  headers: string[],
+  headersISO: string[],
+  presentSet: Set<string> | null,
+  name: string
+): AttendanceSummary {
+  let denom = 0; // 應到
+  let absCnt = 0; // 缺勤
+
+  for (const ci of dateCols) {
+    const iso = headersISO[ci];
+    if (!iso) continue;
+    const hk = headers[ci];
+    if (!hk) continue;
+    const cellValue = (row as any)[hk];
+    const parsed = parseCellForRules(cellValue);
+
+    if (!parsed.excludeDen) {
+      denom += 1;
+      const key = `${name}|${iso}`;
+      // 不命中 EXCLUDE_FROM_ABS 且不在 presentSet → 缺勤
+      const isAbsent = !parsed.excludeAbs && (!presentSet || !presentSet.has(key));
+      if (isAbsent) absCnt += 1;
+    }
+  }
+
+  const attended = denom - absCnt;
+  const rate = denom > 0 ? attended / denom : 0;
+  return { rate, attended, expected: denom, status: statusFromRate(rate) };
 }
 
 function statusFromRate(rate: number): AttendanceSummary['status'] {
@@ -494,34 +514,24 @@ function pickWorstSourceSheet(warehouse: string, pages: string[]): string {
   );
 }
 
-function isShouldAttendCell(raw: unknown, exclude: Set<string>): boolean {
-  const s = (raw == null ? '' : String(raw)).trim();
-  if (!s) return true;
-  const toks = tokenizeCell(s);
-  return !toks.some((t) => exclude.has(t));
-}
-
 /**
- * 判斷某一格是否「實到」：
- * 1. 先檢查是否「自動算實到」（命中 EXCLUDE_FROM_ABS 或純英數字）→ 直接算實到
- * 2. 再檢查 _att 陣列（GAS 後端從出勤時數/時間/備份分頁比對姓名+日期建立）
+ * 從 _att 陣列建立 presentSet（姓名|日期）
  */
-function isActualAttendCell(
-  colIndex: number,
+function buildPresentSetFromAtt(
   row: GasRecordRow,
-  cellValue: unknown,
-  excludeAbs: Set<string>
-): boolean {
-  // 1. 命中 EXCLUDE_FROM_ABS 或純英數字 → 自動算實到
-  if (isAutoAttendCell(cellValue, excludeAbs)) {
-    return true;
-  }
-  // 2. 檢查 _att 陣列（從出勤時數/時間/備份分頁建立）
+  dateCols: number[],
+  headersISO: string[],
+  name: string
+): Set<string> {
+  const set = new Set<string>();
   const att = (row as any)._att as number[] | undefined;
-  if (Array.isArray(att) && att.length > 0) {
-    return Boolean(att[colIndex]);
+  if (!Array.isArray(att)) return set;
+  for (const ci of dateCols) {
+    const iso = headersISO[ci];
+    if (!iso) continue;
+    if (att[ci]) set.add(`${name}|${iso}`);
   }
-  return false;
+  return set;
 }
 
 function findShiftKey(headers: string[]): string | null {
@@ -827,8 +837,6 @@ export default function DashboardPage() {
         return;
       }
 
-      const exclude = buildExcludeForAttRateSet();
-
       const byName = new Map<string, GasRecordRow[]>();
       gasRows.forEach((r) => {
         const nm = getNameFromRow(r);
@@ -839,32 +847,21 @@ export default function DashboardPage() {
 
       const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
       byName.forEach((personRows, nm) => {
-        // ✅ 同一人多列時，以「日期」去重，避免 expected 灌水
-        const expectedSet = new Set<string>();
-        const attendedSet = new Set<string>();
-
-        const excludeAbs = buildExcludeFromAbsSet();
+        // 合併該人所有列的 _att 建立 presentSet
+        const presentSet = new Set<string>();
         for (const row of personRows) {
-          for (const ci of effectiveDateCols) {
-            const hk = headers[ci];
-            if (!hk || !String(hk).trim()) continue;
-            const cellValue = (row as any)[hk];
-            if (!isShouldAttendCell(cellValue, exclude)) continue;
-
-            const iso = String(headersISO?.[ci] || '').trim() || String(hk || '').trim() || String(ci);
-            expectedSet.add(iso);
-            if (isActualAttendCell(ci, row, cellValue, excludeAbs)) attendedSet.add(iso);
-          }
+          const rowSet = buildPresentSetFromAtt(row, effectiveDateCols, headersISO, nm);
+          rowSet.forEach((k) => presentSet.add(k));
         }
 
-        const expected = expectedSet.size;
-        const attended = attendedSet.size;
-        if (!expected) return;
-        const rate = attended / expected;
+        // 使用第一列計算出勤率（日期欄位相同）
+        const summary = calcRowAttendance(personRows[0], effectiveDateCols, headers, headersISO, presentSet, nm);
+        if (summary.expected === 0) return;
+
         list.push({
           id: `att_${nm}`,
           name: nm,
-          summary: { rate, attended, expected, status: statusFromRate(rate) },
+          summary,
         });
       });
 
@@ -1031,49 +1028,25 @@ export default function DashboardPage() {
 
         const isSchedulePage = query.page.includes('班表');
         
-        // DEBUG
-        console.log('[doQuery] isHoursPage:', isHoursPage, 'isSchedulePage:', isSchedulePage, 'dateCols.length:', dateCols.length, 'gasRows.length:', gasRows.length);
-
         // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
-        const exclude = buildExcludeForAttRateSet();
-        const excludeAbs = buildExcludeFromAbsSet();
-
         gasRows.forEach((row) => {
           // 如果已經有 _attendance，跳過
           if ((row as any)._attendance) return;
 
-          let expected = 0;
-          let attended = 0;
-
+          const nm = getNameFromRow(row as any);
+          
           // 只有班表分頁才計算實際出勤率
           if (!isHoursPage && isSchedulePage && dateCols.length) {
-            for (const ci of dateCols) {
-              const hk = headers[ci];
-              if (!hk || !String(hk).trim()) continue;
-              const cellValue = (row as any)[hk];
-              if (!isShouldAttendCell(cellValue, exclude)) continue;
-              expected += 1;
-
-              if (isActualAttendCell(ci, row, cellValue, excludeAbs)) attended += 1;
-            }
+            const presentSet = buildPresentSetFromAtt(row, dateCols, headersISO, nm);
+            const att = calcRowAttendance(row, dateCols, headers, headersISO, presentSet, nm);
+            (row as any)._attendance = att;
+            (row as any)._attendanceRate = att.rate;
+          } else {
+            // 非班表分頁設定空的出勤率
+            (row as any)._attendance = { rate: 0, attended: 0, expected: 0, status: 'normal' as const };
+            (row as any)._attendanceRate = 0;
           }
-
-          // 無條件設定 _attendance，讓出勤率欄位能顯示
-          const rate = expected > 0 ? attended / expected : 0;
-          (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
-          (row as any)._attendanceRate = rate;
         });
-        
-        // DEBUG: 檢查第一列的 _attendance（詳細）
-        if (gasRows.length) {
-          const first = gasRows[0] as any;
-          const att = first._attendance;
-          console.log('[doQuery] first row _attendance:', att, 'expected:', att?.expected, 'attended:', att?.attended, 'name:', getNameFromRow(first as any));
-          // 統計有 expected > 0 的列數
-          let withExpected = 0;
-          gasRows.forEach((r: any) => { if (r._attendance?.expected > 0) withExpected++; });
-          console.log('[doQuery] rows with expected > 0:', withExpected, '/', gasRows.length);
-        }
 
         if (!gasRows.length) {
           setStatus('empty');
@@ -1298,8 +1271,6 @@ export default function DashboardPage() {
       return;
     }
 
-    const exclude = buildExcludeForAttRateSet();
-
     const deptKey = findDeptKey(gasHeaders);
     const shiftKey = findShiftKey(gasHeaders);
     const deptLabel = deptKey
@@ -1325,22 +1296,16 @@ export default function DashboardPage() {
         })();
 
     function computeForCols(colIndices: number[]) {
-      const excludeAbs = buildExcludeFromAbsSet();
-      let shouldDays = 0;
-      let actDays = 0;
-      personRows.forEach((row) => {
-        colIndices.forEach((ci) => {
-          const hk = gasHeaders[ci];
-          if (!hk || !String(hk).trim()) return;
-          const cellValue = (row as any)[hk];
-          if (!isShouldAttendCell(cellValue, exclude)) return;
-          shouldDays += 1;
-          if (isActualAttendCell(ci, row, cellValue, excludeAbs)) actDays += 1;
-        });
-      });
-      const absent = shouldDays - actDays;
-      const rate = shouldDays > 0 ? (actDays / shouldDays) * 100 : null;
-      return { shouldDays, actDays, absent, rate };
+      // 合併該人所有列的 _att 建立 presentSet
+      const presentSet = new Set<string>();
+      for (const row of personRows) {
+        const rowSet = buildPresentSetFromAtt(row, colIndices, gasHeadersISO, targetName);
+        rowSet.forEach((k) => presentSet.add(k));
+      }
+      const att = calcRowAttendance(personRows[0], colIndices, gasHeaders, gasHeadersISO, presentSet, targetName);
+      const absent = att.expected - att.attended;
+      const rate = att.expected > 0 ? (att.attended / att.expected) * 100 : null;
+      return { shouldDays: att.expected, actDays: att.attended, absent, rate };
     }
 
     const dataRows: Array<[string, string, string, string, number, number, number, string]> = [];
@@ -1396,7 +1361,6 @@ export default function DashboardPage() {
     const all = rows as any as GasRecordRow[];
     if (!all.length || !gasDateCols.length || !dateList.length) return;
 
-    const exclude = buildExcludeForAttRateSet();
     const deptKey = findDeptKey(gasHeaders);
     const shiftKey = findShiftKey(gasHeaders);
     const nameKey = '姓名';
@@ -1409,22 +1373,16 @@ export default function DashboardPage() {
       byName.get(nm)!.push(r);
     });
 
-    function computeForCols(personRows: GasRecordRow[], colIndices: number[]) {
-      const excludeAbs = buildExcludeFromAbsSet();
-      let shouldDays = 0;
-      let actDays = 0;
-      personRows.forEach((row) => {
-        colIndices.forEach((ci) => {
-          const hk = gasHeaders[ci];
-          if (!hk || !String(hk).trim()) return;
-          const cellValue = (row as any)[hk];
-          if (!isShouldAttendCell(cellValue, exclude)) return;
-          shouldDays += 1;
-          if (isActualAttendCell(ci, row, cellValue, excludeAbs)) actDays += 1;
-        });
-      });
-      const rate = shouldDays > 0 ? (actDays / shouldDays) * 100 : null;
-      return { shouldDays, actDays, rate };
+    function computeForCols(personRows: GasRecordRow[], colIndices: number[], nm: string) {
+      // 合併該人所有列的 _att 建立 presentSet
+      const presentSet = new Set<string>();
+      for (const row of personRows) {
+        const rowSet = buildPresentSetFromAtt(row, colIndices, gasHeadersISO, nm);
+        rowSet.forEach((k) => presentSet.add(k));
+      }
+      const att = calcRowAttendance(personRows[0], colIndices, gasHeaders, gasHeadersISO, presentSet, nm);
+      const rate = att.expected > 0 ? (att.attended / att.expected) * 100 : null;
+      return { shouldDays: att.expected, actDays: att.attended, rate };
     }
 
     const dataRows: Array<[string, string, string, number, number, string]> = [];
@@ -1435,7 +1393,7 @@ export default function DashboardPage() {
       const shift = shiftKey
         ? Array.from(new Set(personRows.map((r) => String((r as any)[shiftKey] ?? '').trim()).filter(Boolean))).join('、')
         : '';
-      const st = computeForCols(personRows, dateIndicesUpToEnd);
+      const st = computeForCols(personRows, dateIndicesUpToEnd, nm);
       dataRows.push([dept, shift, nm, st.shouldDays, st.actDays, st.rate != null ? `${st.rate.toFixed(1)}%` : '—']);
     });
 
