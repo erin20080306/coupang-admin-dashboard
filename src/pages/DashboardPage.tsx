@@ -749,6 +749,7 @@ export default function DashboardPage() {
       n += 1;
     }
     const rate = expected ? attended / expected : 0;
+    console.log('[attendanceAllAgg] n:', n, 'expected:', expected, 'attended:', attended, 'rate:', rate, 'rows.length:', rows.length);
     return { expected, attended, rate, n };
   }, [rows]);
 
@@ -963,9 +964,13 @@ export default function DashboardPage() {
   const columns = useMemo(() => {
     if (useGas && gasHeaders.length) {
       if (isHoursPage) {
-        return buildGasColumnsNoAttendance(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
+        const cols = buildGasColumnsNoAttendance(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
+        console.log('[columns] isHoursPage, cols.length:', cols.length, 'last col:', cols[cols.length-1]?.header);
+        return cols;
       }
-      return buildGasColumns(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
+      const cols = buildGasColumns(gasHeaders) as unknown as ColumnDef<DisplayRow>[];
+      console.log('[columns] buildGasColumns, cols.length:', cols.length, 'last col:', cols[cols.length-1]?.header);
+      return cols;
     }
     return buildMockColumns() as unknown as ColumnDef<DisplayRow>[];
   }, [useGas, gasHeaders, isHoursPage]);
