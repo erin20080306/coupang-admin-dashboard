@@ -965,8 +965,8 @@ export default function DashboardPage() {
               if (isActualAttendCell(ci, row)) attended += 1;
             }
 
-            if (!expected) return;
-            const rate = attended / expected;
+            // 即使 expected=0 也設定 _attendance，讓出勤率欄位能顯示
+            const rate = expected > 0 ? attended / expected : 0;
             (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
             (row as any)._attendanceRate = rate;
           });
