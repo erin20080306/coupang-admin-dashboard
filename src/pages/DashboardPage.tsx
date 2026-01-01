@@ -951,35 +951,33 @@ export default function DashboardPage() {
 
         const isSchedulePage = query.page.includes('班表');
 
-        // 班表分頁：補算出勤率（即使 dateCols 為空也要設定 _attendance）
-        if (!isHoursPage && isSchedulePage && headers.length) {
-          const exclude = buildExcludeForAttRateSet();
+        // 為所有列設定 _attendance（確保出勤率欄位永遠顯示）
+        const exclude = buildExcludeForAttRateSet();
 
-          gasRows.forEach((row) => {
-            const nm = getNameFromRow(row);
-            if (!nm) return;
+        gasRows.forEach((row) => {
+          // 如果已經有 _attendance，跳過
+          if ((row as any)._attendance) return;
 
-            let expected = 0;
-            let attended = 0;
+          let expected = 0;
+          let attended = 0;
 
-            // 如果有 dateCols，用 dateCols 計算
-            if (dateCols.length) {
-              for (const ci of dateCols) {
-                const hk = headers[ci];
-                if (!hk || !String(hk).trim()) continue;
-                if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
-                expected += 1;
+          // 只有班表分頁才計算實際出勤率
+          if (!isHoursPage && isSchedulePage && dateCols.length) {
+            for (const ci of dateCols) {
+              const hk = headers[ci];
+              if (!hk || !String(hk).trim()) continue;
+              if (!isShouldAttendCell((row as any)[hk], exclude)) continue;
+              expected += 1;
 
-                if (isActualAttendCell(ci, row)) attended += 1;
-              }
+              if (isActualAttendCell(ci, row)) attended += 1;
             }
+          }
 
-            // 即使 expected=0 也設定 _attendance，讓出勤率欄位能顯示
-            const rate = expected > 0 ? attended / expected : 0;
-            (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
-            (row as any)._attendanceRate = rate;
-          });
-        }
+          // 無條件設定 _attendance，讓出勤率欄位能顯示
+          const rate = expected > 0 ? attended / expected : 0;
+          (row as any)._attendance = { rate, attended, expected, status: statusFromRate(rate) };
+          (row as any)._attendanceRate = rate;
+        });
 
         if (!gasRows.length) {
           setStatus('empty');
