@@ -1104,7 +1104,8 @@ export default function DashboardPage() {
     if (hit && Date.now() - hit.ts < PAGES_CACHE_MS) {
       const clean = (hit.pages || []).map((p) => String(p ?? '').trim()).filter(Boolean);
       setAvailablePages(clean.length ? clean : mockPages);
-      setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (clean[0] || s.page) }));
+      const prefer = clean.find((p) => p.includes('班表')) || '';
+      setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (prefer || clean[0] || s.page) }));
       return;
     }
     try {
@@ -1112,7 +1113,8 @@ export default function DashboardPage() {
       const clean = (pages || []).map((p) => String(p ?? '').trim()).filter(Boolean);
       PAGES_CACHE.set(warehouse, { ts: Date.now(), pages: clean });
       setAvailablePages(clean.length ? clean : mockPages);
-      setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (clean[0] || s.page) }));
+      const prefer = clean.find((p) => p.includes('班表')) || '';
+      setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (prefer || clean[0] || s.page) }));
     } catch {
       setAvailablePages(mockPages);
     }
@@ -1140,7 +1142,7 @@ export default function DashboardPage() {
         setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
         const { headers, rows: gasRows } = gasPayloadToRows(payload, {
-          disableAttendance: isHoursPage,
+          disableAttendance: true,
           sheetName: query.page,
         });
         setGasHeaders(headers);
@@ -1152,22 +1154,36 @@ export default function DashboardPage() {
           return !!nm;
         });
 
-        // 直接使用 GAS 傳回的出勤率資料（attRate, attExpected, attAttended）
-        filteredRows.forEach((row) => {
-          const rawRow = row as any;
-          // GAS 端已計算好 attRate, attExpected, attAttended
-          const attRate = typeof rawRow.attRate === 'number' ? rawRow.attRate : 0;
-          const attExpected = typeof rawRow.attExpected === 'number' ? rawRow.attExpected : 0;
-          const attAttended = typeof rawRow.attAttended === 'number' ? rawRow.attAttended : 0;
+        if (!isHoursPage && dateCols.length && query.page.includes('班表')) {
+          const names = new Set<string>();
+          filteredRows.forEach((r) => {
+            const nm = getRawNameFromRow(r as any);
+            if (nm) names.add(nm);
+          });
 
-          rawRow._attendance = {
-            rate: attRate,
-            attended: attAttended,
-            expected: attExpected,
-            status: statusFromRate(attRate)
-          };
-          rawRow._attendanceRate = attRate;
-        });
+          const presentSetForPage = await buildPresentSetFromAttendanceSheets(
+            query.warehouse,
+            availablePages,
+            apiName,
+            names
+          );
+
+          filteredRows.forEach((row) => {
+            const rawRow = row as any;
+            const nm = getRawNameFromRow(rawRow);
+            if (!nm) return;
+            const a = calcRowAttendance(
+              rawRow,
+              dateCols,
+              headers,
+              headersISO,
+              presentSetForPage,
+              nm
+            );
+            rawRow._attendance = a;
+            rawRow._attendanceRate = a.rate;
+          });
+        }
 
         if (!filteredRows.length) {
           setStatus('empty');
