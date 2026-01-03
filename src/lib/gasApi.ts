@@ -31,6 +31,14 @@ export type GasWarehouseIdResult =
   | { ok: true; warehouse: string; spreadsheetId: string }
   | { ok: false; error: string };
 
+type CacheEntry<T> = { ts: number; value: T };
+
+const SHEETS_CACHE = new Map<string, CacheEntry<string[]>>();
+const SHEETS_CACHE_MS = 60_000;
+
+const QUERY_CACHE = new Map<string, CacheEntry<GasPayload>>();
+const QUERY_CACHE_MS = 20_000;
+
 function getBaseUrl(): string | null {
   const v = (import.meta as any).env?.VITE_GAS_URL as string | undefined;
   const s = (v || '').replace(/\s+/g, '').trim();
@@ -80,10 +88,15 @@ function toUrl(base: string, params: Record<string, string | undefined>): string
 export async function gasGetSheets(warehouse: string): Promise<string[]> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
+  const ck = `${base}|${warehouse}`;
+  const hit = SHEETS_CACHE.get(ck);
+  if (hit && Date.now() - hit.ts < SHEETS_CACHE_MS) return hit.value;
   const url = toUrl(base, { mode: 'getSheets', wh: warehouse, t: String(Date.now()) });
   const json = await fetchJsonNoStore<{ sheetNames?: string[]; error?: string }>(url);
   if (json.error) throw new Error(json.error);
-  return Array.isArray(json.sheetNames) ? json.sheetNames : [];
+  const out = Array.isArray(json.sheetNames) ? json.sheetNames : [];
+  SHEETS_CACHE.set(ck, { ts: Date.now(), value: out });
+  return out;
 }
 
 export async function gasQuerySheet(
@@ -93,6 +106,9 @@ export async function gasQuerySheet(
 ): Promise<GasPayload> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
+  const ck = `${base}|${warehouse}|${sheet}|${(name || '').trim()}`;
+  const hit = QUERY_CACHE.get(ck);
+  if (hit && Date.now() - hit.ts < QUERY_CACHE_MS) return hit.value;
   const url = toUrl(base, {
     mode: 'api',
     wh: warehouse,
@@ -102,6 +118,7 @@ export async function gasQuerySheet(
   });
   const json = await fetchJsonNoStore<GasPayload>(url);
   if ((json as any).error) throw new Error(String((json as any).error));
+  QUERY_CACHE.set(ck, { ts: Date.now(), value: json });
   return json;
 }
 

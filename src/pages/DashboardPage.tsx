@@ -523,8 +523,20 @@ function parseCellForRules(cell: unknown): { excludeDen: boolean; excludeAbs: bo
   const raw = (cell == null ? '' : String(cell)).trim();
   if (!raw) return { excludeDen: false, excludeAbs: false };
   const tokens = tokenizeCell(raw);
-  const excludeDen = tokens.some((t) => EXCLUDE_FROM_DENOM.has(t));
-  const excludeAbs = tokens.some((t) => EXCLUDE_FROM_ABS.has(t)) ||
+  const excludeDen = tokens.some((t) => {
+    if (EXCLUDE_FROM_DENOM.has(t)) return true;
+    for (const k of EXCLUDE_FROM_DENOM) {
+      if (t.includes(k)) return true;
+    }
+    return false;
+  });
+  const excludeAbs = tokens.some((t) => {
+    if (EXCLUDE_FROM_ABS.has(t)) return true;
+    for (const k of EXCLUDE_FROM_ABS) {
+      if (t.includes(k)) return true;
+    }
+    return false;
+  }) ||
     (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
   return { excludeDen, excludeAbs };
 }
