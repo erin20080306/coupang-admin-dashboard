@@ -834,6 +834,10 @@ export default function DashboardPage() {
     birthdayOrPhone: '',
   });
 
+  const [openSheetWarehouse, setOpenSheetWarehouse] = useState<string>(
+    (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0]
+  );
+
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'empty'>('idle');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string>('');
@@ -1566,10 +1570,10 @@ export default function DashboardPage() {
     setAttAllBuilt([]);
   }
 
-  async function openWarehouseSheet() {
+  async function openWarehouseSheet(warehouse: string) {
     if (!isAdmin) return;
     if (!useGas) return;
-    const sid = await gasGetWarehouseId(query.warehouse);
+    const sid = await gasGetWarehouseId(warehouse);
     window.open(`https://docs.google.com/spreadsheets/d/${sid}/edit`, '_blank', 'noopener,noreferrer');
   }
 
@@ -1596,9 +1600,23 @@ export default function DashboardPage() {
         </div>
         <div className="topbarRight">
           {isAdmin && useGas ? (
-            <button className="btnGhost" onClick={() => void openWarehouseSheet()}>
-              開啟試算表
-            </button>
+            <>
+              <button className="btnGhost" onClick={() => void openWarehouseSheet(query.warehouse)}>
+                開啟本倉試算表
+              </button>
+              <select
+                className="btnGhost"
+                value={openSheetWarehouse}
+                onChange={(e) => setOpenSheetWarehouse(e.target.value)}
+              >
+                {mockWarehouses.map((w) => (
+                  <option key={`open_${w}`} value={w}>{w}</option>
+                ))}
+              </select>
+              <button className="btnGhost" onClick={() => void openWarehouseSheet(openSheetWarehouse)}>
+                開啟所選倉別
+              </button>
+            </>
           ) : null}
           <button
             className="btnGhost"

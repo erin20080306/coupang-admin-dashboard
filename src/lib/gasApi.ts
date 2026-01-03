@@ -39,6 +39,9 @@ const SHEETS_CACHE_MS = 60_000;
 const QUERY_CACHE = new Map<string, CacheEntry<GasPayload>>();
 const QUERY_CACHE_MS = 20_000;
 
+const WAREHOUSE_ID_CACHE = new Map<string, CacheEntry<string>>();
+const WAREHOUSE_ID_CACHE_MS = 10 * 60_000;
+
 function getBaseUrl(): string | null {
   const v = (import.meta as any).env?.VITE_GAS_URL as string | undefined;
   const s = (v || '').replace(/\s+/g, '').trim();
@@ -61,9 +64,13 @@ async function fetchJsonNoStore<T>(url: string): Promise<T> {
 export async function gasGetWarehouseId(warehouse: string): Promise<string> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
+  const ck = `${base}|${warehouse}`;
+  const hit = WAREHOUSE_ID_CACHE.get(ck);
+  if (hit && Date.now() - hit.ts < WAREHOUSE_ID_CACHE_MS) return hit.value;
   const url = toUrl(base, { mode: 'getWarehouseId', wh: warehouse, t: String(Date.now()) });
   const json = await fetchJsonNoStore<GasWarehouseIdResult>(url);
   if (!json || json.ok === false) throw new Error((json as any)?.error || '取得試算表 ID 失敗');
+  WAREHOUSE_ID_CACHE.set(ck, { ts: Date.now(), value: json.spreadsheetId });
   return json.spreadsheetId;
 }
 
