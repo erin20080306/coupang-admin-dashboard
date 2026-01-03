@@ -13,68 +13,123 @@ const WAREHOUSE_IDS = {
   'TAO10': '1y0w49xdFlHvcVtgtG8fq6zdrF26y8j7HMFh5ujzUyR4'
 };
 
-/** 預設倉別（登入與預設皆需）*/
+/** 預設倉別（登入與預設畫面） */
 const DEFAULT_WAREHOUSE_KEY = 'TAO1';
 
-/** 固定讀取一個表（TAO1，可自行更改這一個 ID) 
- * 目前用於登入驗證與預設倉別 
+/** 固定讀取一份表（TAO1，可自行更改這一個 ID)
+ * 目前用於登入驗證與預設倉別
  */
 const SPREADSHEET_ID = WAREHOUSE_IDS[DEFAULT_WAREHOUSE_KEY];
 
 /** 不當作分頁選項的分頁（登入用、調動紀錄等）*/
-const EXCLUDED_SHEETS = ['生日稀核', '調動記錄'];
+const EXCLUDED_SHEETS = ['生日管理', '變動記錄'];
 
 /** 登入驗證用分頁名稱（在 SPREADSHEET_ID 裡）*/
-const LOGIN_SHEET_NAME = '生日稀核';
+const LOGIN_SHEET_NAME = '生日管理';
 
-/** MASTER INDEX 總索引表：用來先查姓名/生日/倉別（A=姓名,B=生日,C=倉別）*/
+/** MASTER INDEX 試算表：用來先查姓名/生日/倉別（A=姓名,B=生日,C=倉別） */
 const MASTER_INDEX_SPREADSHEET_ID = '12ce9KH2Zjs4mQ90d0yxvwww4gnjpOuEKg7eFWTec0oQ';
 const MASTER_INDEX_SHEET_NAME = 'index';
 
-/** 排除出勤率分母的關鍵字（例、休、國、離、調倉、調任、轉正）*/
-var EXCLUDE_FROM_DENOM = {
-  '例': true, '休': true, '國': true, '離': true,
-  '調倉': true, '調任': true, '轉正': true
-};
-
-/** 排除缺勤的關鍵字（有這些就算實到）*/
-var EXCLUDE_FROM_ABS = {
-  '例': true, '休': true, '國': true, '離': true,
-  '調倉': true, '調任': true, '轉正': true,
-  '未': true, '特': true
-};
-
-/** 解析格子內容，判斷是否排除在「應到」或「實到」計算之外 */
-function parseCellForRules_(cell) {
-  var raw = String(cell || '').trim();
-  if (!raw) return { excludeDen: false, excludeAbs: false };
-
-  var tokens = raw.split(/[、，,;／\/\n]+/).map(function(x) { return x.trim(); }).filter(Boolean);
-  var excludeDen = tokens.some(function(t) { return EXCLUDE_FROM_DENOM[t]; });
-
-  // 純英數字（無中文）也算實到
-  var ALNUM_RE = /^[A-Za-z0-9\-:\.]+$/;
-  var HAS_CJK_RE = /[\u4e00-\u9fff]/;
-  var excludeAbs = tokens.some(function(t) { return EXCLUDE_FROM_ABS[t]; }) ||
-    (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
-
-  return { excludeDen: excludeDen, excludeAbs: excludeAbs };
-}
-
-/** 依倉別 key (如 "TAO3") 取得對應總索引表 ID，若無則改用預設 TAO1 */
+/** 依傳入倉別 key (如 "TAO3") 取得實際試算表 ID，若無則改用預設 TAO1 */
 function resolveWarehouse_(wh) {
   var key = normWhKey_(wh);
   if (!WAREHOUSE_IDS[key]) key = DEFAULT_WAREHOUSE_KEY;
   return { key: key, id: WAREHOUSE_IDS[key] };
 }
 
+function fastPayloadForName_(ss, sh, sheetName, name, lastRow, lastCol, frozenLeft) {
+  var maxCheck = Math.min(lastRow, 3);
+  var headVals = sh.getRange(1, 1, maxCheck, lastCol).getDisplayValues();
+  if (!headVals || !headVals.length) return null;
+
+  var headerRowIndex = detectHeaderRowIndex_(headVals);
+  var headers = headVals[headerRowIndex] || [];
+  var headersISO = headers.map(guessISOFromHeaderText_);
+
+  var dateCols = [];
+  for (var i = 0; i < headersISO.length; i++) {
+    if (headersISO[i]) dateCols.push(i);
+  }
+
+  var dataStartRow = headerRowIndex + 2;
+  if (dataStartRow > lastRow) {
+    return {
+      headers: headers,
+      headersISO: headersISO,
+      headersTop: headerRowIndex > 0 ? headVals[0] : [],
+      rows: [],
+      dateCols: dateCols,
+      frozenLeft: frozenLeft,
+      engine: 'fast',
+      counts: { rows: 0, cols: headers.length }
+    };
+  }
+
+  var nameCol = findNameCol_(headers);
+  if (nameCol < 0) return null;
+
+  var nameVals = sh.getRange(dataStartRow, nameCol + 1, lastRow - (dataStartRow - 1), 1).getDisplayValues();
+  var target = normName_(name);
+  var matchRows = [];
+  for (var r = 0; r < nameVals.length; r++) {
+    var cell = nameVals[r] && nameVals[r][0] != null ? String(nameVals[r][0]) : '';
+    if (!cell) continue;
+    if (normName_(cell) === target) {
+      matchRows.push(dataStartRow + r);
+    }
+  }
+
+  var rows = [];
+  if (matchRows.length) {
+    var minR = matchRows[0];
+    var maxR = matchRows[0];
+    var set = {};
+    for (var k = 0; k < matchRows.length; k++) {
+      var rr = matchRows[k];
+      set[rr] = true;
+      if (rr < minR) minR = rr;
+      if (rr > maxR) maxR = rr;
+    }
+
+    var rng = sh.getRange(minR, 1, maxR - minR + 1, lastCol);
+    var vals = rng.getDisplayValues();
+    var bgs = rng.getBackgrounds();
+    var fcs = rng.getFontColors();
+
+    for (var off = 0; off < vals.length; off++) {
+      var absRow = minR + off;
+      if (!set[absRow]) continue;
+      rows.push({
+        v: vals[off].map(function (x) { return String(x == null ? '' : x); }),
+        bg: bgs[off].slice(),
+        fc: fcs[off].slice()
+      });
+    }
+  }
+
+  var payload = {
+    headers: headers,
+    headersISO: headersISO,
+    headersTop: headerRowIndex > 0 ? headVals[0] : [],
+    rows: rows,
+    dateCols: dateCols,
+    frozenLeft: frozenLeft,
+    engine: 'fast',
+    counts: { rows: rows.length, cols: headers.length }
+  };
+
+  attachAttendanceFlagsForRows_(ss, sheetName, payload, rows);
+  return payload;
+}
+
 /**
- * 總網入口
+ * 網頁入口
  * 預設回傳 index.html
  * mode=api 時回傳指定分頁＋指定姓名的資料
  * mode=getSheets 時回傳該倉別的可選分頁清單
  * mode=getAllPeopleCount 時回傳所有倉別人數
- * 可加 wh=TAO3 / TAO4 ... 切換倉別（目前只維護者前端使用）
+ * 可加 wh=TAO3 / TAO4 ... 切換倉別（目前只給管理者前端使用）
  */
 function doGet(e) {
   var whParam = e && e.parameter && e.parameter.wh;
@@ -82,33 +137,18 @@ function doGet(e) {
   var warehouseKey = resolved.key;
   var ssid = resolved.id;
 
-  // ✅ 只回傳指定倉別的總索引表 ID（給前端「跳轉各倉總索引表」用）
-  // 注意：此模式不做預設倉別回調；若倉別不存在就回傳錯誤
+  //  只回傳指定倉別的試算表 ID（給前端「開啟各倉試算表」用）
+  // 注意：此模式不做預設倉別回退；若倉別不存在就回傳錯誤
   if (e && e.parameter && e.parameter.mode === 'getWarehouseId') {
     var rawKey = normWhKey_(whParam);
     if (!rawKey || !WAREHOUSE_IDS[rawKey]) {
       return ContentService.createTextOutput(
-        JSON.stringify({ ok: false, error: '找不到倉別總索引表 ID：' + rawKey })
+        JSON.stringify({ ok: false, error: '找不到倉別試算表 ID：' + rawKey })
       ).setMimeType(ContentService.MimeType.JSON);
     }
     return ContentService.createTextOutput(
       JSON.stringify({ ok: true, warehouse: rawKey, spreadsheetId: WAREHOUSE_IDS[rawKey] })
     ).setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // ✅ 依姓名查詢倉別（給前端「姓名辨識倉別」用）
-  if (e && e.parameter && e.parameter.mode === 'findWarehouseByName') {
-    var nmParam = tryDecodeOnce_(e.parameter.name || '');
-    try {
-      var wh = findWarehouseByName_(nmParam);
-      return ContentService.createTextOutput(
-        JSON.stringify({ ok: true, warehouseKey: wh })
-      ).setMimeType(ContentService.MimeType.JSON);
-    } catch (err2) {
-      return ContentService.createTextOutput(
-        JSON.stringify({ ok: false, error: err2.toString() })
-      ).setMimeType(ContentService.MimeType.JSON);
-    }
   }
 
   // 回傳所有倉別人數（給前端 KPI 用）
@@ -122,91 +162,220 @@ function doGet(e) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // 只回傳指定倉別的分頁清單（給前端稀核者切換倉別用）
+  // 只回傳指定倉別的分頁清單（給前端管理者切換倉別用）
   if (e && e.parameter && e.parameter.mode === 'getSheets') {
-    var sheets = getSheetNames_(ssid);
+    var namesForApi = getSheetNames_(ssid);
     return ContentService.createTextOutput(
-      JSON.stringify({ ok: true, warehouse: warehouseKey, sheets: sheets })
+      JSON.stringify({
+        warehouse: warehouseKey,
+        sheetNames: namesForApi
+      })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // mode=api 時：回傳指定分頁＋指定姓名的資料
-  if (e && e.parameter && e.parameter.mode === 'api') {
-    var sheetName = tryDecodeOnce_(e.parameter.sheet || '');
-    var nameFilter = tryDecodeOnce_(e.parameter.name || '');
-    if (!sheetName) {
-      return ContentService.createTextOutput(
-        JSON.stringify({ ok: false, error: '未指定分頁' })
-      ).setMimeType(ContentService.MimeType.JSON);
-    }
+  //  登入驗證（給前端 LoginPage 用）
+  if (e && e.parameter && e.parameter.mode === 'verifyLogin') {
+    var nm = String(e.parameter.name || '').trim();
+    var bd = String(e.parameter.birthday || '').trim();
+    var res = verifyLogin(nm, bd);
+    return ContentService.createTextOutput(JSON.stringify(res))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ✅ 依姓名查詢倉別（給前端「姓名辨識倉別」用 / Vercel 也可用）
+  if (e && e.parameter && e.parameter.mode === 'findWarehouseByName') {
+    var nmFind = tryDecodeOnce_(e.parameter.name || '');
     try {
-      var payload = getGridPayloadForName_(sheetName, ssid, nameFilter);
-      return ContentService.createTextOutput(
-        JSON.stringify({ ok: true, warehouse: warehouseKey, data: payload })
-      ).setMimeType(ContentService.MimeType.JSON);
-    } catch (err) {
-      return ContentService.createTextOutput(
-        JSON.stringify({ ok: false, error: err.toString() })
-      ).setMimeType(ContentService.MimeType.JSON);
+      var whFind = lookupWarehouseKeyByNameFromIndex_(nmFind);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, warehouseKey: whFind }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (errFind) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(errFind) }))
+        .setMimeType(ContentService.MimeType.JSON);
     }
   }
 
-  // 預設：回傳 index.html
-  return HtmlService.createHtmlOutputFromFile('index')
+  var sheetNames = getSheetNames_(ssid);
+
+  // 預設分頁：優先「出勤記錄」，再來「班表」，找不到就用第一個
+  var prefer = '';
+  if (sheetNames.indexOf('出勤記錄') >= 0) {
+    prefer = '出勤記錄';
+  } else if (sheetNames.indexOf('班表') >= 0) {
+    prefer = '班表';
+  } else {
+    prefer = sheetNames[0] || '';
+  }
+
+  var rawSheet = (e && e.parameter && e.parameter.sheet) || '';
+  var pick = tryDecodeOnce_(rawSheet);
+  var sheetName = '';
+  var wantKey = normSheetKey_(pick);
+  if (wantKey) {
+    for (var si = 0; si < sheetNames.length; si++) {
+      if (normSheetKey_(sheetNames[si]) === wantKey) {
+        sheetName = sheetNames[si];
+        break;
+      }
+    }
+  }
+  if (!sheetName) sheetName = prefer;
+
+  // 資料 API：只回傳指定姓名的列
+  if (e && e.parameter && e.parameter.mode === 'api') {
+    var loginName = (e.parameter.name || '').trim();
+    try {
+      var targetWarehouseKey = warehouseKey;
+      var targetSsid = ssid;
+      if (String(loginName || '').trim()) {
+        targetWarehouseKey = lookupWarehouseKeyByNameFromIndex_(loginName);
+        if (!WAREHOUSE_IDS[targetWarehouseKey]) {
+          throw new Error('INDEX 倉別無效：' + targetWarehouseKey);
+        }
+        targetSsid = WAREHOUSE_IDS[targetWarehouseKey];
+      }
+
+      var sheetNamesForApi = getSheetNames_(targetSsid);
+      var preferForApi = '';
+      if (sheetNamesForApi.indexOf('出勤記錄') >= 0) {
+        preferForApi = '出勤記錄';
+      } else if (sheetNamesForApi.indexOf('班表') >= 0) {
+        preferForApi = '班表';
+      } else {
+        preferForApi = sheetNamesForApi[0] || '';
+      }
+
+      var rawSheetForApi = (e && e.parameter && e.parameter.sheet) || '';
+      var pickForApi = tryDecodeOnce_(rawSheetForApi);
+      var sheetNameForApi = '';
+      var wantKeyApi = normSheetKey_(pickForApi);
+      if (wantKeyApi) {
+        for (var sj = 0; sj < sheetNamesForApi.length; sj++) {
+          if (normSheetKey_(sheetNamesForApi[sj]) === wantKeyApi) {
+            sheetNameForApi = sheetNamesForApi[sj];
+            break;
+          }
+        }
+      }
+      if (!sheetNameForApi) sheetNameForApi = preferForApi;
+
+      var payload = getGridPayloadForName_(sheetNameForApi, targetSsid, loginName);
+      payload.requestedSheetRaw = rawSheetForApi;
+      payload.requestedSheetDecoded = pickForApi;
+      payload.sheetNameUsed = sheetNameForApi;
+      payload.availableSheets = sheetNamesForApi;
+      payload.warehouse = targetWarehouseKey;
+      payload.spreadsheetId = targetSsid;
+      return ContentService.createTextOutput(JSON.stringify(payload))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({ error: String(err) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // 一般瀏覽：回傳畫面
+  var t = HtmlService.createTemplateFromFile('index');
+  t.whKey = warehouseKey;
+  t.whKeys = Object.keys(WAREHOUSE_IDS);
+  t.whIds = WAREHOUSE_IDS;
+  t.sheetNames = sheetNames;
+  t.sheetName = sheetName;
+  return t
+    .evaluate()
     .setTitle('寶佳鋼鐵表 - 登入')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/** 取得分頁列表（排除不當作選項的分頁）*/
-function getSheetNames_(spreadsheetId) {
-  var ss = SpreadsheetApp.openById(spreadsheetId);
-  var sheets = ss.getSheets();
-  var names = [];
-  for (var i = 0; i < sheets.length; i++) {
-    var n = sheets[i].getName();
-    if (EXCLUDED_SHEETS.indexOf(n) < 0) {
-      names.push(n);
-    }
-  }
-  return names;
-}
-
-/** 標準化姓名：去空白、全形轉半形 */
-function normName_(s) {
-  return String(s || '').trim().replace(/\s+/g, '');
-}
-
-/** 標準化倉別 key */
-function normWhKey_(s) {
-  return String(s || '').trim().toUpperCase();
-}
-
-/** 標準化生日：只保留數字 */
-function normBirth_(s) {
-  return String(s || '').replace(/\D/g, '');
-}
-
-/** 標準化字串：去空白 */
 function norm_(s) {
   return String(s || '').trim();
 }
 
-/** 從 Sheet 名稱不分大小寫查找 */
+function normName_(s) {
+  return norm_(s).replace(/[\s\u00A0\u3000\u200B]+/g, '');
+}
+
+function normBirth_(s) {
+  return norm_(s).replace(/[\/\-\.\s]/g, '');
+}
+
+function normWhKey_(s) {
+  return norm_(s).replace(/\s+/g, '').toUpperCase();
+}
+
+function normSheetKey_(s) {
+  return String(s || '')
+    .replace(/[\u00A0\u3000]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getSheetNames_(spreadsheetId) {
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'sheetNames:' + String(spreadsheetId || '');
+  try {
+    var cached = cache.get(cacheKey);
+    if (cached) {
+      var parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (_) { }
+
+  var ss = SpreadsheetApp.openById(spreadsheetId);
+  var all = ss.getSheets().map(function (s) { return s.getName(); });
+  var out = all.filter(function (n) {
+    var nk = normSheetKey_(n);
+    for (var i = 0; i < EXCLUDED_SHEETS.length; i++) {
+      if (normSheetKey_(EXCLUDED_SHEETS[i]) === nk) return false;
+    }
+    return true;
+  });
+
+  try {
+    var json = JSON.stringify(out);
+    if (json.length < 90000) cache.put(cacheKey, json, 120);
+  } catch (_) { }
+
+  return out;
+}
+
+function detectNameColByData_(rows, name) {
+  if (!rows || !rows.length) return -1;
+  var target = normName_(name);
+  if (!target) return -1;
+
+  var maxRows = Math.min(rows.length, 300);
+  var maxCols = (rows[0] && rows[0].v) ? rows[0].v.length : 0;
+  if (maxCols <= 0) return -1;
+
+  for (var c = 0; c < maxCols; c++) {
+    for (var r = 0; r < maxRows; r++) {
+      var v = rows[r] && rows[r].v ? rows[r].v[c] : '';
+      if (!v) continue;
+      if (normName_(String(v)) === target) {
+        return c;
+      }
+    }
+  }
+  return -1;
+}
+
 function getSheetByNameCI_(ss, name) {
-  var target = String(name || '').trim().toLowerCase();
+  var exact = ss.getSheetByName(name);
+  if (exact) return exact;
+  var want = String(name || '').trim().toLowerCase();
+  if (!want) return null;
   var sheets = ss.getSheets();
   for (var i = 0; i < sheets.length; i++) {
-    if (sheets[i].getName().toLowerCase() === target) {
-      return sheets[i];
-    }
+    var n = String(sheets[i].getName() || '').trim().toLowerCase();
+    if (n === want) return sheets[i];
   }
   return null;
 }
 
-/** 從 MASTER_INDEX 查姓名對應的倉別 */
-function findWarehouseByName_(name) {
+function lookupWarehouseKeyByNameFromIndex_(name) {
   var nm = normName_(name);
-  if (!nm) return null;
+  if (!nm) return '';
 
   var cache = CacheService.getScriptCache();
   var cacheKey = 'idxWh:' + nm;
@@ -247,14 +416,24 @@ function findWarehouseByName_(name) {
   throw new Error('INDEX 找不到該姓名的倉別：' + nm);
 }
 
+// ✅ 給 html.txt 用 google.script.run 呼叫（避免在嵌入頁面用 fetch 造成 Failed to fetch）
+function findWarehouseByName(name) {
+  try {
+    var wh = lookupWarehouseKeyByNameFromIndex_(name);
+    return { ok: true, warehouseKey: wh };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 /**
  * 登入驗證
- * name：姓名；birthday：生日（文字比對，不限制位數）
+ * name：姓名；birthday：生日（文字比較，不限制位數）
  * 規則：
- *  - 稀核者：姓名=「鋼鐵」＆生日=「0000」→ 直接通過，不查總索引表
+ *  - 管理者：姓名=「酷澎」＆生日=「0000」→ 直接通過，不看試算表
  *  - 一般使用者：
  *      1) 先查 MASTER_INDEX/index：A=姓名、B=生日、C=倉別 → 姓名+生日相符才取倉別
- *      2) 再到該倉總索引表的「生日稀核」分頁中，A欄=姓名 且 B欄=生日 才通過
+ *      2) 再去該倉試算表的登入驗證分頁中，A欄=姓名 且 B欄=生日 才通過
  *      3) 回傳 warehouseKey 給前端鎖定倉別
  */
 function verifyLogin(name, birthday) {
@@ -265,8 +444,8 @@ function verifyLogin(name, birthday) {
     return { ok: false, msg: '請輸入姓名與生日' };
   }
 
-  // 稀核者帳號：不用驗證分頁
-  if (name === '鋼鐵' && birthday === '0000') {
+  // 管理者帳號：不用驗證分頁
+  if (name === '酷澎' && birthday === '0000') {
     return { ok: true, isAdmin: true, name: name, warehouseKey: DEFAULT_WAREHOUSE_KEY };
   }
 
@@ -331,7 +510,7 @@ function verifyBirthdayInWarehouse_(warehouseKey, ssid, name, birthday) {
 
   var last = sh.getLastRow();
   if (last < 2) {
-    return { ok: false, msg: '生日稀核尚無資料（' + warehouseKey + '）' };
+    return { ok: false, msg: LOGIN_SHEET_NAME + '尚無資料（' + warehouseKey + '）' };
   }
 
   var vals = sh.getRange(2, 1, last - 1, 2).getDisplayValues();
@@ -343,7 +522,7 @@ function verifyBirthdayInWarehouse_(warehouseKey, ssid, name, birthday) {
     }
   }
 
-  return { ok: false, msg: '姓名或生日不正確（' + warehouseKey + ' 生日稀核）' };
+  return { ok: false, msg: '姓名或生日不正確（' + warehouseKey + ' 生日管理）' };
 }
 
 /**
@@ -353,7 +532,7 @@ function verifyBirthdayInWarehouse_(warehouseKey, ssid, name, birthday) {
  *    headers: [...],
  *    headersISO: [...],
  *    headersTop: [],
- *    rows: [{v:[...], bg:[...], fc:[...], att:[...], attRate, attExpected, attAttended}...],
+ *    rows: [{v:[...], bg:[...], fc:[...], att:[...]}...],
  *    dateCols: [數字...],
  *    frozenLeft: 整數,
  *    engine: 'basic',
@@ -390,7 +569,7 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
     };
   }
 
-  // 依分頁尺寸快取 60 秒（依姓名匹分，姓名篩選在快取之後）
+  // 依分頁尺寸簡單快取 60 秒（未依姓名區分，姓名篩選在快取之後）
   var cache = CacheService.getScriptCache();
   var cacheKey = 'grid:' + spreadsheetId + ':' + sheetName + ':' + lastRow + 'x' + lastCol;
   var base = null;
@@ -411,7 +590,7 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
     } catch (_) { }
   }
 
-  // 沒有指定姓名 → 回傳全部（給稀核者用），一樣掛上出勤旗標
+  // 沒有指定姓名 → 回傳全部（給管理者用），一樣掛上出勤旗標
   var name = nm;
   if (!name) {
     attachAttendanceFlagsForRows_(ss, sheetName, base, base.rows);
@@ -422,7 +601,7 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
   if (nameCol < 0) nameCol = detectNameColByData_(base.rows, name);
   if (nameCol < 0) throw new Error('找不到姓名欄位：' + sheetName);
 
-  var filteredRows = base.rows.filter(function(row) {
+  var filteredRows = base.rows.filter(function (row) {
     return normName_(String(row.v[nameCol] || '')) === normName_(name);
   });
 
@@ -442,10 +621,10 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
 }
 
 /**
- * 將整個分頁讀成 payload（不做姓名篩選）
- * ✅ 支援「表頭 1 列或 2 列」：
+ * 把整個分頁讀成 payload（不做姓名篩選）
+ *  支援「表頭 1 列或 2 列」：
  *   - 會自動判斷哪一列才是「真正欄位表頭」
- *   - TAO3 這種上方有一列標題的班表就不會誤認資料列
+ *   - TAO3 這種上面多一列標題的班表就不會被算進資料列
  */
 function readSheetToPayload_(sh, lastRow, lastCol) {
   var rng = sh.getRange(1, 1, lastRow, lastCol);
@@ -463,7 +642,7 @@ function readSheetToPayload_(sh, lastRow, lastCol) {
     };
   }
 
-  // 根據前幾列內容自動判斷真正表頭所在列（支援 1 或 2 列表頭）
+  // 根據前幾列內容自動判斷真正表頭列（支援 1 或 2 列表頭）
   var headerRowIndex = detectHeaderRowIndex_(values);
 
   var headers = values[headerRowIndex] || [];
@@ -477,21 +656,24 @@ function readSheetToPayload_(sh, lastRow, lastCol) {
   var rows = [];
   for (var r = headerRowIndex + 1; r < values.length; r++) {
     rows.push({
-      v: values[r].map(function(x) { return String(x == null ? '' : x); }),
+      v: values[r].map(function (x) { return String(x == null ? '' : x); }),
       bg: bgs[r].slice(),
       fc: fcs[r].slice()
+      // att 之後在 attachAttendanceFlagsForRows_ 再加
     });
   }
 
   return {
     headers: headers,
     headersISO: headersISO,
+    // 若有 2 列表頭，這裡先保留第一列（目前前端沒用到，只做備份）
     headersTop: headerRowIndex > 0 ? values[0] : [],
     rows: rows,
     dateCols: dateCols
   };
 }
 
+/** 嘗試 decode 一次 URL 編碼 */
 function tryDecodeOnce_(s) {
   if (!s) return '';
   try {
@@ -501,12 +683,12 @@ function tryDecodeOnce_(s) {
   }
 }
 
-/** 找「姓名」欄位位置（匹配版，支援多種寫法）*/
+/** 找「姓名」欄位位置（加強版，支援多種寫法） */
 function findNameCol_(headers) {
   if (!headers || !headers.length) return -1;
 
   // 先比對完全相同的欄名
-  var EXACT = ['姓名', 'Name', 'name', '員工姓名', '姓名(建議)', '中文姓名'];
+  var EXACT = ['姓名', 'Name', 'name', '員工姓名', '姓名(必填)', '中文姓名'];
   for (var i = 0; i < headers.length; i++) {
     var h = String(headers[i] || '').trim();
     if (!h) continue;
@@ -529,20 +711,6 @@ function findNameCol_(headers) {
   return -1;
 }
 
-/** 從資料內容推斷姓名欄位 */
-function detectNameColByData_(rows, targetName) {
-  if (!rows || !rows.length || !targetName) return -1;
-  var target = normName_(targetName);
-  for (var c = 0; c < (rows[0].v || []).length; c++) {
-    for (var r = 0; r < rows.length; r++) {
-      if (normName_(String(rows[r].v[c] || '')) === target) {
-        return c;
-      }
-    }
-  }
-  return -1;
-}
-
 /**
  * 從表頭文字或日期字串猜日期（yyyy/mm/dd、mm/dd、yyyy年m月d日、m月d日）
  * 回傳 'YYYY-MM-DD' 或空字串
@@ -551,8 +719,9 @@ function guessISOFromHeaderText_(t) {
   var s = String(t || '').trim();
   if (!s) return '';
 
-  // yyyy/mm/dd 或 yyyy-mm-dd
-  var m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  //  允許表頭帶星期/時間/括號等額外文字：先從字串中「擷取」日期
+  // 1) yyyy/mm/dd 或 yyyy-mm-dd（允許後面有文字）
+  var m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   if (m) {
     var y = m[1];
     var mo = ('0' + m[2]).slice(-2);
@@ -560,17 +729,8 @@ function guessISOFromHeaderText_(t) {
     return y + '-' + mo + '-' + d;
   }
 
-  // mm/dd 或 m/d（沒年份時用今年）
-  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
-  if (m) {
-    var year = String(new Date().getFullYear());
-    var mo2 = ('0' + m[1]).slice(-2);
-    var d2 = ('0' + m[2]).slice(-2);
-    return year + '-' + mo2 + '-' + d2;
-  }
-
-  // yyyy年m月d日 或 m月d日
-  m = s.match(/^(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日$/);
+  // 2) yyyy年m月d日 或 m月d日（允許後面有文字）
+  m = s.match(/(?:(\d{4})\s*年)?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   if (m) {
     var yy = m[1] || String(new Date().getFullYear());
     var mo3 = ('0' + m[2]).slice(-2);
@@ -578,14 +738,23 @@ function guessISOFromHeaderText_(t) {
     return yy + '-' + mo3 + '-' + d3;
   }
 
+  // 3) mm/dd 或 m/d（沒年份時用今年；避免誤抓年份中的片段）
+  m = s.match(/(?:^|[^\d])(\d{1,2})[\/\-](\d{1,2})(?:$|[^\d])/);
+  if (m) {
+    var year = String(new Date().getFullYear());
+    var mo2 = ('0' + m[1]).slice(-2);
+    var d2 = ('0' + m[2]).slice(-2);
+    return year + '-' + mo2 + '-' + d2;
+  }
+
   return '';
 }
 
 /**
  * 根據前幾列內容自動判斷真正的欄位表頭所在列
- * - 會綜合「是否包含姓名/部門關鍵字」、「是否有日期格式」、「非空欄位數」作評分
+ * - 會綜合「是否包含姓名/部門關鍵字」、「是否有日期格式」、「非空欄位數」來評分
  * - 目前只檢查前 3 列，回傳 0-based index
- * - TAO3 這種上方只有一行大標題、下方才是正式表頭，會自動選下方該一列
+ * - TAO3 那種上面只有一行大標題、下面才是正式表頭，會自動選下面那一列
  */
 function detectHeaderRowIndex_(values) {
   if (!values || !values.length) return 0;
@@ -627,7 +796,7 @@ function detectHeaderRowIndex_(values) {
 
     var score = nonEmpty + hasName * 5 + hasDept * 3 + dateCount * 2;
 
-    // 若只有一個欄位有字，而且僅是整表標題（欄數較多但只有第一格長字），稍扣分
+    // 若只有一個欄位有字，而且像是整表標題（欄數較多但只有第一格長字），稍微扣分
     if (nonEmpty === 1 && row.length >= 4 && String(row[0]).length > 4) {
       score -= 3;
     }
@@ -642,95 +811,74 @@ function detectHeaderRowIndex_(values) {
 }
 
 /**
- * 改進版：為「班表」分頁的資料列，依姓名＋日期掛上出勤旗標 + 直接計算出勤率
- * row.att = [0,0,1,0,...] (哪些日期有出勤記錄)
- * row.attRate = 0.95 (出勤率)
- * row.attExpected = 20 (應到天數)
- * row.attAttended = 19 (實到天數)
+ * 對「班表」分頁的資料列，依姓名＋日期掛上出勤旗標 row.att
+ * row.att[欄索引] = 1 表示該日有出勤紀錄，0 表示沒有
  */
 function attachAttendanceFlagsForRows_(ss, sheetName, base, rows) {
   if (!rows || !rows.length) return;
   if (sheetName.indexOf('班表') < 0) return; // 只處理班表
-
   var dateCols = base.dateCols || [];
   if (!dateCols.length) return;
 
   var headersISO = base.headersISO || [];
-  var headers = base.headers || [];
-  var nameCol = findNameCol_(headers);
+  var nameCol = findNameCol_(base.headers);
   if (nameCol < 0) return;
 
   var attMap = buildAttendanceMap_(ss);
+  if (!attMap) return;
 
-  rows.forEach(function(row) {
-    var nm = String(row.v[nameCol] || '').trim();
+  rows.forEach(function (row) {
+    //  修正：統一姓名格式（去除空白/全形空白等），避免比對不到出勤紀錄
+    var nm = normName_(String(row.v[nameCol] || ''));
     if (!nm) return;
 
     var att = [];
-    for (var i = 0; i < headers.length; i++) att[i] = 0;
+    for (var i = 0; i < base.headers.length; i++) att[i] = 0;
 
-    var denom = 0;    // 應到
-    var absCnt = 0;   // 缺勤
-
-    dateCols.forEach(function(ci) {
+    dateCols.forEach(function (ci) {
       var iso = headersISO[ci];
       if (!iso) return;
-
-      var cellValue = row.v[ci] || '';
-      var cellStr = String(cellValue).trim();
-      var parsed = parseCellForRules_(cellValue);
-
-      // 設定出勤旗標
-      var key = nm + '|' + iso;
-      var hasRecord = attMap && attMap[key];
-      att[ci] = hasRecord ? 1 : 0;
-
-      // 計算出勤率
-      if (!parsed.excludeDen) {
-        denom += 1;
-
-        // 判斷是否缺勤：
-        // 1. 命中 excludeAbs → 不缺勤
-        // 2. 有出勤記錄 → 不缺勤
-        // 3. 格子有內容 → 不缺勤 (fallback)
-        // 4. 以上都不滿足 → 缺勤
-        var isAbsent = true;
-        if (parsed.excludeAbs) {
-          isAbsent = false;
-        } else if (hasRecord) {
-          isAbsent = false;
-        } else if (cellStr) {
-          // fallback: 有排班內容就算實到
-          isAbsent = false;
+      var headerText = String((base.headers && base.headers[ci]) || '').trim();
+      var useMonthDay = false;
+      if (!/\d{4}/.test(headerText)) {
+        if (/^\d{1,2}[\/\-]\d{1,2}/.test(headerText) || /^\d{1,2}\s*月\s*\d{1,2}\s*日/.test(headerText)) {
+          useMonthDay = true;
         }
-        if (isAbsent) absCnt += 1;
       }
+
+      var key = nm + '|' + iso;
+      var hit = attMap[key];
+      //  若班表表頭沒有年份（如 12/1、12/1(一)、12月1日），改用 MM-DD 比對避免跨年比對不到
+      if (!hit && useMonthDay) {
+        var mdKey = nm + '|' + iso.slice(5);
+        hit = attMap[mdKey];
+      }
+      att[ci] = hit ? 1 : 0;
     });
 
     row.att = att;
-    row.attExpected = denom;
-    row.attAttended = denom - absCnt;
-    row.attRate = denom > 0 ? (denom - absCnt) / denom : 0;
   });
 }
 
 /**
- * 建構出勤紀錄查詢 map： key = 姓名|YYYY-MM-DD → true
+ * 建立出勤紀錄查詢 map： key = 姓名|YYYY-MM-DD → true
  * 只抓分頁名稱含「出勤時數 / 出勤時間 / 出勤備份」
- * ✅ 同樣支援「表頭 2 列」的出勤表：自動判斷真正表頭列
+ *  同樣支援「表頭 2 列」的出勤表：自動判斷真正表頭列
  */
 function buildAttendanceMap_(ss) {
   var map = {};
 
   var sheets = ss.getSheets();
-  sheets.forEach(function(sh) {
+  sheets.forEach(function (sh) {
     var sn = sh.getName();
 
     // 只要「分頁名稱內含」以下關鍵字之一就算出勤分頁
     if (
       sn.indexOf('出勤時數') < 0 &&
       sn.indexOf('出勤時間') < 0 &&
-      sn.indexOf('出勤備份') < 0
+      sn.indexOf('出勤備份') < 0 &&
+      sn.indexOf('出勤記錄') < 0 &&  //  新增
+      sn.indexOf('出勤紀錄') < 0     //  新增（同義字）
     ) {
       return;
     }
@@ -741,7 +889,7 @@ function buildAttendanceMap_(ss) {
 
     var vals = sh.getRange(1, 1, lastRow, lastCol).getDisplayValues();
 
-    // 這裡亦用同一套判斷邏輯，支援表頭 1 或 2 列
+    //  自動判斷真正表頭列（支援 1 或 2 列表頭）
     var headerRowIndex = detectHeaderRowIndex_(vals);
     var headers = vals[headerRowIndex] || [];
 
@@ -758,17 +906,18 @@ function buildAttendanceMap_(ss) {
       }
     }
 
-    if (nameCol < 0 || dateCol < 0) return; // 這張表找不到姓名或日期，就跳過
+    if (nameCol < 0 || dateCol < 0) return; // 這張表找不到姓名或日期，就略過
 
     for (var r = headerRowIndex + 1; r < vals.length; r++) {
-      var nm = String(vals[r][nameCol] || '').trim();
+      //  修正：統一姓名格式（去除空白/全形空白等），避免比對不到班表姓名
+      var nm = normName_(String(vals[r][nameCol] || ''));
       var ds = String(vals[r][dateCol] || '').trim();
       if (!nm || !ds) continue;
 
-      // 先用 guessISOFromHeaderText_（吃 yyyy/mm/dd、m/d、yyyy年m月d日…）
+      // 優先用 guessISOFromHeaderText_（吃 yyyy/mm/dd、m/d、yyyy年m月d日…）
       var iso = guessISOFromHeaderText_(ds);
 
-      // 若上方沒解析出來，再靠 new Date() 解析
+      // 若上面沒解析出來，再試用 new Date() 解析
       if (!iso) {
         var d = new Date(ds);
         if (!isNaN(d.getTime())) {
@@ -783,102 +932,17 @@ function buildAttendanceMap_(ss) {
 
       var key = nm + '|' + iso;
       map[key] = true;
+      //  同步建立 MM-DD key，避免班表表頭沒有年份時比對不到
+      map[nm + '|' + iso.slice(5)] = true;
     }
   });
 
   return map;
 }
 
-/**
- * 快速查詢指定姓名的資料（大表用）
- */
-function fastPayloadForName_(ss, sh, sheetName, name, lastRow, lastCol, frozenLeft) {
-  var maxCheck = Math.min(lastRow, 3);
-  var headVals = sh.getRange(1, 1, maxCheck, lastCol).getDisplayValues();
-  if (!headVals || !headVals.length) return null;
-
-  var headerRowIndex = detectHeaderRowIndex_(headVals);
-  var headers = headVals[headerRowIndex] || [];
-  var headersISO = headers.map(guessISOFromHeaderText_);
-
-  var dateCols = [];
-  for (var i = 0; i < headersISO.length; i++) {
-    if (headersISO[i]) dateCols.push(i);
-  }
-
-  var dataStartRow = headerRowIndex + 2;
-  if (dataStartRow > lastRow) {
-    return {
-      headers: headers,
-      headersISO: headersISO,
-      headersTop: headerRowIndex > 0 ? headVals[0] : [],
-      rows: [],
-      dateCols: dateCols,
-      frozenLeft: frozenLeft,
-      engine: 'fast',
-      counts: { rows: 0, cols: headers.length }
-    };
-  }
-
-  var nameCol = findNameCol_(headers);
-  if (nameCol < 0) return null;
-
-  var nameVals = sh.getRange(dataStartRow, nameCol + 1, lastRow - (dataStartRow - 1), 1).getDisplayValues();
-  var target = normName_(name);
-  var matchRows = [];
-  for (var r = 0; r < nameVals.length; r++) {
-    var cell = nameVals[r] && nameVals[r][0] != null ? String(nameVals[r][0]) : '';
-    if (!cell) continue;
-    if (normName_(cell) === target) {
-      matchRows.push(dataStartRow + r);
-    }
-  }
-
-  var rows = [];
-  if (matchRows.length) {
-    var minR = matchRows[0];
-    var maxR = matchRows[0];
-    var set = {};
-    for (var k = 0; k < matchRows.length; k++) {
-      var rr = matchRows[k];
-      set[rr] = true;
-      if (rr < minR) minR = rr;
-      if (rr > maxR) maxR = rr;
-    }
-
-    var rng = sh.getRange(minR, 1, maxR - minR + 1, lastCol);
-    var vals = rng.getDisplayValues();
-    var bgs = rng.getBackgrounds();
-    var fcs = rng.getFontColors();
-
-    for (var off = 0; off < vals.length; off++) {
-      var absRow = minR + off;
-      if (!set[absRow]) continue;
-      rows.push({
-        v: vals[off].map(function(x) { return String(x == null ? '' : x); }),
-        bg: bgs[off].slice(),
-        fc: fcs[off].slice()
-      });
-    }
-  }
-
-  var payload = {
-    headers: headers,
-    headersISO: headersISO,
-    headersTop: headerRowIndex > 0 ? headVals[0] : [],
-    rows: rows,
-    dateCols: dateCols,
-    frozenLeft: frozenLeft,
-    engine: 'fast',
-    counts: { rows: rows.length, cols: headers.length }
-  };
-
-  attachAttendanceFlagsForRows_(ss, sheetName, payload, rows);
-  return payload;
-}
 
 /**
- * 統計所有倉別人數（不重複）- 修正版本
+ * 統計所有倉別人數（不重複） - 修正版本
  * 回傳格式：{ total: 總人數, details: [{warehouse: 倉別, month: 月份, count: 人數, leaveCount: 離職人數}, ...] }
  */
 function getAllPeopleCount_() {
@@ -946,7 +1010,7 @@ function getAllPeopleCount_() {
           var name = String(rows[k].v[nameCol] || '').trim();
           if (!name) continue;
 
-          // ✅ 修正：檢查所有日期欄位中是否有「離」文字
+          //  修正：檢查所有日期欄位中是否有「離」文字
           var isLeave = false;
           for (var d = 0; d < dateCols.length; d++) {
             var cellValue = String(rows[k].v[dateCols[d]] || '').trim();
@@ -957,7 +1021,7 @@ function getAllPeopleCount_() {
             }
           }
 
-          // ✅ 修正：檢查其他欄位（非日期欄位）是否包含「離」字
+          //  修正：檢查其他欄位（非日期欄位）是否包含「離」字
           if (!isLeave) {
             for (var col = 0; col < rows[k].v.length; col++) {
               // 跳過日期欄位（已經檢查過）
@@ -1025,7 +1089,7 @@ function getAllPeopleCount_() {
 
 /**
  * 取得當前分頁的人數統計（分頁人數與離職人數）
- * ✅ 修正：只統計當前分頁，而不是所有倉別
+ *  修正：只統計當前分頁，而不是所有倉別
  */
 function getCurrentSheetPeopleCount(sheetName, spreadsheetId) {
   try {
@@ -1058,7 +1122,7 @@ function getCurrentSheetPeopleCount(sheetName, spreadsheetId) {
       var name = String(rows[i].v[nameCol] || '').trim();
       if (!name) continue;
 
-      // ✅ 檢查是否離職：檢查該行所有欄位是否包含「離」字
+      //  檢查是否離職：檢查該行所有欄位是否包含「離」字
       var isLeave = false;
 
       // 檢查所有欄位

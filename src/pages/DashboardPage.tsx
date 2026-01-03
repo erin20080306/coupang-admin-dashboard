@@ -17,6 +17,23 @@ const PAGES_CACHE = new Map<string, { ts: number; pages: string[] }>();
 
 const PAGES_CACHE_MS = 20_000;
 
+const PRESENT_SET_CACHE = new Map<string, { ts: number; set: Set<string> | null }>();
+const PRESENT_SET_CACHE_MS = 60_000;
+
+async function getPresentSetCached(
+  warehouse: string,
+  pages: string[],
+  apiName: string
+): Promise<Set<string> | null> {
+  const ck = `${warehouse}|${apiName}|${pages.join('|')}`;
+  const hit = PRESENT_SET_CACHE.get(ck);
+  if (hit && Date.now() - hit.ts < PRESENT_SET_CACHE_MS) return hit.set;
+
+  const set = await buildPresentSetFromAttendanceSheets(warehouse, pages, apiName, new Set<string>());
+  PRESENT_SET_CACHE.set(ck, { ts: Date.now(), set });
+  return set;
+}
+
 function getAttendanceFromRow(r: DisplayRow): AttendanceSummary | undefined {
   if ((r as any)._attendance) return (r as any)._attendance as AttendanceSummary;
   if ((r as any).attendance) return (r as any).attendance as AttendanceSummary;
@@ -822,6 +839,7 @@ export default function DashboardPage() {
   const mainTableWrapRef = useRef<HTMLDivElement | null>(null);
   const attSingleWrapRef = useRef<HTMLDivElement | null>(null);
   const attAllWrapRef = useRef<HTMLDivElement | null>(null);
+  const queryTokenRef = useRef(0);
   const useGas = gasIsConfigured();
   const user = getUser();
   const isAdmin = Boolean(user?.isAdmin);
@@ -1141,6 +1159,7 @@ export default function DashboardPage() {
   }
 
   async function doQuery() {
+    const token = ++queryTokenRef.current;
     setError('');
     setStatus('loading');
     setResult(null);
@@ -1149,6 +1168,7 @@ export default function DashboardPage() {
       if (useGas) {
         const apiName = isAdmin ? '' : (user?.name || '');
         const payload = await gasQuerySheet(query.warehouse, query.page, apiName);
+        if (token !== queryTokenRef.current) return;
         const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
         setGasHeadersISO(headersISO);
         let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
@@ -1165,6 +1185,7 @@ export default function DashboardPage() {
           disableAttendance: true,
           sheetName: query.page,
         });
+        if (token !== queryTokenRef.current) return;
         setGasHeaders(headers);
 
 
@@ -1175,50 +1196,31 @@ export default function DashboardPage() {
         });
 
         if (!isHoursPage && dateCols.length && query.page.includes('班表')) {
-          const names = new Set<string>();
-          filteredRows.forEach((r) => {
-            const nm = getRawNameFromRow(r as any);
-            if (nm) names.add(nm);
-          });
-
-          const presentSetForPage = await buildPresentSetFromAttendanceSheets(
-            query.warehouse,
-            availablePages,
-            apiName,
-            names
-          );
-
+          // 先用 _att / cell fallback 快速算一次（加速切換時的首屏）
           filteredRows.forEach((row) => {
             const rawRow = row as any;
             const nm = getRawNameFromRow(rawRow);
             if (!nm) return;
-            const a = calcRowAttendance(
-              rawRow,
-              dateCols,
-              headers,
-              headersISO,
-              presentSetForPage,
-              nm
-            );
+            const a = calcRowAttendance(rawRow, dateCols, headers, headersISO, null, nm);
             rawRow._attendance = a;
             rawRow._attendanceRate = a.rate;
           });
 
-          const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
-          const seen = new Set<string>();
+          const listQuick: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
+          const seenQuick = new Set<string>();
           filteredRows.forEach((row) => {
             const nm = getNameFromRow(row as any);
             if (!nm) return;
-            if (seen.has(nm)) return;
+            if (seenQuick.has(nm)) return;
             const a = (row as any)._attendance as AttendanceSummary | undefined;
             if (!a) return;
             if (a.expected === 0) return;
-            seen.add(nm);
-            list.push({ id: `att_${nm}`, name: nm, summary: a });
+            seenQuick.add(nm);
+            listQuick.push({ id: `att_${nm}`, name: nm, summary: a });
           });
-          list.sort((a, b) => a.summary.rate - b.summary.rate);
+          listQuick.sort((a, b) => a.summary.rate - b.summary.rate);
           setAttWorstSourcePage(query.page);
-          setAttAll(list);
+          setAttAll(listQuick);
         }
 
         if (!filteredRows.length) {
@@ -1253,6 +1255,48 @@ export default function DashboardPage() {
         setAttSingleBuilt([]);
         setAttAllBuilt([]);
         setLeaveTag('');
+
+        // 背景補齊：若是班表，抓出勤記錄 presentSet 後再重算一次（維持正確性）
+        if (!isHoursPage && dateCols.length && query.page.includes('班表')) {
+          void (async () => {
+            try {
+              const presentSetForPage = await getPresentSetCached(query.warehouse, availablePages, apiName);
+              if (token !== queryTokenRef.current) return;
+              if (!presentSetForPage || !presentSetForPage.size) return;
+
+              const rows2 = (filteredRows as any[]).map((row) => {
+                const rawRow = row as any;
+                const nm = getRawNameFromRow(rawRow);
+                if (!nm) return rawRow;
+                const a = calcRowAttendance(rawRow, dateCols, headers, headersISO, presentSetForPage, nm);
+                return { ...rawRow, _attendance: a, _attendanceRate: a.rate };
+              });
+
+              const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
+              const seen = new Set<string>();
+              rows2.forEach((row) => {
+                const nm = getNameFromRow(row as any);
+                if (!nm) return;
+                if (seen.has(nm)) return;
+                const a = (row as any)._attendance as AttendanceSummary | undefined;
+                if (!a) return;
+                if (a.expected === 0) return;
+                seen.add(nm);
+                list.push({ id: `att_${nm}`, name: nm, summary: a });
+              });
+              list.sort((a, b) => a.summary.rate - b.summary.rate);
+
+              setResult((prev) => {
+                if (!prev || token !== queryTokenRef.current) return prev;
+                return { ...prev, rows: rows2 as any, stats: prev.stats };
+              });
+              setAttWorstSourcePage(query.page);
+              setAttAll(list);
+            } catch {
+              // ignore
+            }
+          })();
+        }
         return;
       }
 
