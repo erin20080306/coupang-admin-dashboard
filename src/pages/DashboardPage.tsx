@@ -25,7 +25,11 @@ async function getPresentSetCached(
   pages: string[],
   apiName: string
 ): Promise<Set<string> | null> {
-  const ck = `${warehouse}|${apiName}|${pages.join('|')}`;
+  const cleanPages = (Array.isArray(pages) ? pages : [])
+    .map((p) => String(p ?? '').trim())
+    .filter(Boolean);
+  const sources = pickAttendanceSheets(cleanPages);
+  const ck = `ps:${normalizeWarehouseKey(warehouse)}:${String(apiName || '').trim()}:${sources.join('|')}`;
   const hit = PRESENT_SET_CACHE.get(ck);
   if (hit && Date.now() - hit.ts < PRESENT_SET_CACHE_MS) return hit.set;
 
@@ -1195,6 +1199,11 @@ export default function DashboardPage() {
           return !!nm;
         });
 
+        const hasAnyAttArray = filteredRows.some((r) => {
+          const a = (r as any)._att;
+          return Array.isArray(a) && a.length > 0;
+        });
+
         if (!isHoursPage && dateCols.length && query.page.includes('班表')) {
           // 先用 _att / cell fallback 快速算一次（加速切換時的首屏）
           filteredRows.forEach((row) => {
@@ -1257,7 +1266,7 @@ export default function DashboardPage() {
         setLeaveTag('');
 
         // 背景補齊：若是班表，抓出勤記錄 presentSet 後再重算一次（維持正確性）
-        if (!isHoursPage && dateCols.length && query.page.includes('班表')) {
+        if (!isHoursPage && dateCols.length && query.page.includes('班表') && !hasAnyAttArray) {
           void (async () => {
             try {
               const presentSetForPage = await getPresentSetCached(query.warehouse, availablePages, apiName);
@@ -1286,9 +1295,22 @@ export default function DashboardPage() {
               });
               list.sort((a, b) => a.summary.rate - b.summary.rate);
 
+              const stat2 = rows2.reduce(
+                (acc, r) => {
+                  acc.total += 1;
+                  const a = (r as any)._attendance as AttendanceSummary | undefined;
+                  if (a) {
+                    acc.attended += a.attended;
+                    acc.absent += Math.max(0, a.expected - a.attended);
+                  }
+                  return acc;
+                },
+                { total: 0, attended: 0, late: 0, absent: 0 }
+              );
+
               setResult((prev) => {
                 if (!prev || token !== queryTokenRef.current) return prev;
-                return { ...prev, rows: rows2 as any, stats: prev.stats };
+                return { ...prev, rows: rows2 as any, stats: stat2 };
               });
               setAttWorstSourcePage(query.page);
               setAttAll(list);
