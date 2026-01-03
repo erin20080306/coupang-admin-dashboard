@@ -96,6 +96,21 @@ function doGet(e) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
+  // ✅ 依姓名查詢倉別（給前端「姓名辨識倉別」用）
+  if (e && e.parameter && e.parameter.mode === 'findWarehouseByName') {
+    var nmParam = tryDecodeOnce_(e.parameter.name || '');
+    try {
+      var wh = findWarehouseByName_(nmParam);
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: true, warehouseKey: wh })
+      ).setMimeType(ContentService.MimeType.JSON);
+    } catch (err2) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: err2.toString() })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // 回傳所有倉別人數（給前端 KPI 用）
   if (e && e.parameter && e.parameter.mode === 'getAllPeopleCount') {
     var countData = getAllPeopleCount_();

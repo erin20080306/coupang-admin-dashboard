@@ -3,7 +3,7 @@ import gsap from 'gsap';
 import { useNavigate } from 'react-router-dom';
 import { getUser, logout } from '../lib/auth';
 import { mockPages, mockWarehouses, queryPeople, type AttendanceSummary, type PersonRow, type QueryParams, type QueryResult } from '../lib/mockApi';
-import { gasGetSheets, gasGetWarehouseId, gasIsConfigured, gasQuerySheet } from '../lib/gasApi';
+import { gasFindWarehouseByName, gasGetSheets, gasGetWarehouseId, gasIsConfigured, gasQuerySheet } from '../lib/gasApi';
 import { gasPayloadToRows, type GasRecordRow } from '../lib/transformGas';
 import AttendanceCards from '../components/AttendanceCards';
 import ResultTable, { type ColumnDef } from '../components/ResultTable';
@@ -838,6 +838,9 @@ export default function DashboardPage() {
     (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0]
   );
 
+  const [findWhName, setFindWhName] = useState<string>('');
+  const [findWhLoading, setFindWhLoading] = useState(false);
+
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'empty'>('idle');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string>('');
@@ -1577,6 +1580,30 @@ export default function DashboardPage() {
     window.open(`https://docs.google.com/spreadsheets/d/${sid}/edit`, '_blank', 'noopener,noreferrer');
   }
 
+  async function findWarehouseByNameAndMaybeSwitch() {
+    if (!isAdmin) return;
+    if (!useGas) return;
+    const nm = findWhName.trim();
+    if (!nm) return;
+    setFindWhLoading(true);
+    try {
+      const wh = await gasFindWarehouseByName(nm);
+      if (!wh) return;
+      if (wh === query.warehouse) {
+        window.alert(`已在 ${wh}`);
+        return;
+      }
+      const ok = window.confirm(`姓名「${nm}」屬於倉別 ${wh}。是否切換到該倉？`);
+      if (!ok) return;
+      setQuery((s) => ({ ...s, warehouse: wh, page: '' }));
+      await refreshPages(wh);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFindWhLoading(false);
+    }
+  }
+
   useLayoutEffect(() => {
     if (status !== 'success') return;
     if (!tbodyRef.current) return;
@@ -1652,6 +1679,27 @@ export default function DashboardPage() {
                 ))}
               </select>
             </label>
+
+            {isAdmin && useGas ? (
+              <label className="filter" style={{ gridColumn: 'span 6' }}>
+                <span>姓名辨識倉別</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    value={findWhName}
+                    onChange={(e) => setFindWhName(e.target.value)}
+                    placeholder="輸入姓名後辨識倉別"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btnGhost"
+                    onClick={() => void findWarehouseByNameAndMaybeSwitch()}
+                    disabled={findWhLoading || !findWhName.trim()}
+                  >
+                    {findWhLoading ? '辨識中…' : '辨識倉別'}
+                  </button>
+                </div>
+              </label>
+            ) : null}
 
             <label className="filter">
               <span>分頁</span>

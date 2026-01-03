@@ -42,6 +42,9 @@ const QUERY_CACHE_MS = 20_000;
 const WAREHOUSE_ID_CACHE = new Map<string, CacheEntry<string>>();
 const WAREHOUSE_ID_CACHE_MS = 10 * 60_000;
 
+const FIND_WAREHOUSE_BY_NAME_CACHE = new Map<string, CacheEntry<string>>();
+const FIND_WAREHOUSE_BY_NAME_CACHE_MS = 10 * 60_000;
+
 function getBaseUrl(): string | null {
   const v = (import.meta as any).env?.VITE_GAS_URL as string | undefined;
   const s = (v || '').replace(/\s+/g, '').trim();
@@ -79,6 +82,28 @@ export async function gasVerifyLogin(name: string, birthday: string): Promise<Ga
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
   const url = toUrl(base, { mode: 'verifyLogin', name, birthday, t: String(Date.now()) });
   return await fetchJsonNoStore<GasLoginResult>(url);
+}
+
+export async function gasFindWarehouseByName(name: string): Promise<string> {
+  const base = getBaseUrl();
+  if (!base) throw new Error('尚未設定 VITE_GAS_URL');
+  const nm = String(name || '').trim();
+  if (!nm) throw new Error('請輸入姓名');
+
+  const ck = `${base}|${nm}`;
+  const hit = FIND_WAREHOUSE_BY_NAME_CACHE.get(ck);
+  if (hit && Date.now() - hit.ts < FIND_WAREHOUSE_BY_NAME_CACHE_MS) return hit.value;
+
+  const url = toUrl(base, { mode: 'findWarehouseByName', name: nm, t: String(Date.now()) });
+  const json = await fetchJsonNoStore<any>(url);
+  if (!json) throw new Error('查詢失敗');
+  if (json.ok === false) throw new Error(String(json.error || json.msg || '查詢失敗'));
+
+  const wh = String(json.warehouseKey ?? json.warehouse ?? json.whKey ?? json.key ?? '').trim().toUpperCase();
+  if (!wh) throw new Error(String(json.error || json.msg || '查詢失敗'));
+
+  FIND_WAREHOUSE_BY_NAME_CACHE.set(ck, { ts: Date.now(), value: wh });
+  return wh;
 }
 
 function toUrl(base: string, params: Record<string, string | undefined>): string {
