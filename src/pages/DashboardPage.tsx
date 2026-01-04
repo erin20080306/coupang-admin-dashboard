@@ -162,6 +162,29 @@ function LeaveStatPanel({
   const [singleName, setSingleName] = useState('');
   const [leaveFilter, setLeaveFilter] = useState('');
 
+  type SortKey = 'dept' | 'shift' | 'name' | 'tag' | 'dates' | 'count';
+  const [sortKey, setSortKey] = useState<SortKey>('count');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function cmp_(a: unknown, b: unknown): number {
+    if (typeof a === 'number' && typeof b === 'number') return a - b;
+    const an = typeof a === 'string' && a.trim() !== '' ? Number(a) : (typeof a === 'number' ? a : NaN);
+    const bn = typeof b === 'string' && b.trim() !== '' ? Number(b) : (typeof b === 'number' ? b : NaN);
+    if (!Number.isNaN(an) && !Number.isNaN(bn)) return an - bn;
+    const ax = typeof a === 'string' ? a : String(a ?? '');
+    const bx = typeof b === 'string' ? b : String(b ?? '');
+    return ax.localeCompare(bx, 'zh-Hant', { numeric: true, sensitivity: 'base' });
+  }
+
+  function onSort_(k: SortKey) {
+    if (sortKey === k) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(k);
+      setSortDir(k === 'count' ? 'desc' : 'asc');
+    }
+  }
+
   const effectiveMode = isAdmin ? mode : 'single';
 
   const effectiveSingleName = isAdmin ? singleName.trim() : (userName || '').trim();
@@ -294,6 +317,23 @@ function LeaveStatPanel({
     return dataShown.map((x) => [deptLabel, shiftLabel, nameKey, x.tag, x.dates, x.count, modeLabel]);
   }, [dataShown, effectiveMode, effectiveSingleName, headers, rowsAll]);
 
+  const exportRowsSorted = useMemo(() => {
+    const out = [...exportRows];
+    const getVal = (r: (string | number)[]) => {
+      if (sortKey === 'dept') return r[0];
+      if (sortKey === 'shift') return r[1];
+      if (sortKey === 'name') return r[2];
+      if (sortKey === 'tag') return r[3];
+      if (sortKey === 'dates') return r[4];
+      return r[5];
+    };
+    out.sort((a, b) => {
+      const v = cmp_(getVal(a), getVal(b));
+      return sortDir === 'asc' ? v : -v;
+    });
+    return out;
+  }, [exportRows, sortKey, sortDir]);
+
   if (!isSchedule && !isRecord) return null;
 
   return (
@@ -369,15 +409,15 @@ function LeaveStatPanel({
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
             <button
               className="btnGhost"
-              onClick={() => exportExcelHtml(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
-              disabled={!dataShown.length}
+              onClick={() => exportExcelHtml(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRowsSorted.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
+              disabled={!exportRowsSorted.length}
             >
               Excel
             </button>
             <button
               className="btnGhost"
-              onClick={() => exportCsv(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
-              disabled={!dataShown.length}
+              onClick={() => exportCsv(exportBase, ['部門', '班別', '姓名', '假別', '日期', '天數'], exportRowsSorted.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]))}
+              disabled={!exportRowsSorted.length}
             >
               CSV
             </button>
@@ -387,28 +427,76 @@ function LeaveStatPanel({
                 if (!wrapRef.current) return;
                 exportElementPng(wrapRef.current, exportBase);
               }}
-              disabled={!dataShown.length}
+              disabled={!exportRowsSorted.length}
             >
               PNG
             </button>
           </div>
 
-          {dataShown.length ? (
+          {exportRowsSorted.length ? (
             <div className="tableWrap" ref={wrapRef}>
               <table className="table">
                 <thead>
                   <tr>
-                    <th>部門</th>
-                    <th>班別</th>
-                    <th>姓名</th>
-                    <th>假別</th>
-                    <th>日期</th>
-                    <th>天數</th>
+                    <th className="thSortable" onClick={() => onSort_('dept')}>
+                      <div className="thInner">
+                        <span>部門</span>
+                        <span className="sortPair" aria-hidden="true">
+                          <span className={`sortTri up${sortKey === 'dept' && sortDir === 'asc' ? ' on' : ''}`} />
+                          <span className={`sortTri down${sortKey === 'dept' && sortDir === 'desc' ? ' on' : ''}`} />
+                        </span>
+                      </div>
+                    </th>
+                    <th className="thSortable" onClick={() => onSort_('shift')}>
+                      <div className="thInner">
+                        <span>班別</span>
+                        <span className="sortPair" aria-hidden="true">
+                          <span className={`sortTri up${sortKey === 'shift' && sortDir === 'asc' ? ' on' : ''}`} />
+                          <span className={`sortTri down${sortKey === 'shift' && sortDir === 'desc' ? ' on' : ''}`} />
+                        </span>
+                      </div>
+                    </th>
+                    <th className="thSortable" onClick={() => onSort_('name')}>
+                      <div className="thInner">
+                        <span>姓名</span>
+                        <span className="sortPair" aria-hidden="true">
+                          <span className={`sortTri up${sortKey === 'name' && sortDir === 'asc' ? ' on' : ''}`} />
+                          <span className={`sortTri down${sortKey === 'name' && sortDir === 'desc' ? ' on' : ''}`} />
+                        </span>
+                      </div>
+                    </th>
+                    <th className="thSortable" onClick={() => onSort_('tag')}>
+                      <div className="thInner">
+                        <span>假別</span>
+                        <span className="sortPair" aria-hidden="true">
+                          <span className={`sortTri up${sortKey === 'tag' && sortDir === 'asc' ? ' on' : ''}`} />
+                          <span className={`sortTri down${sortKey === 'tag' && sortDir === 'desc' ? ' on' : ''}`} />
+                        </span>
+                      </div>
+                    </th>
+                    <th className="thSortable" onClick={() => onSort_('dates')}>
+                      <div className="thInner">
+                        <span>日期</span>
+                        <span className="sortPair" aria-hidden="true">
+                          <span className={`sortTri up${sortKey === 'dates' && sortDir === 'asc' ? ' on' : ''}`} />
+                          <span className={`sortTri down${sortKey === 'dates' && sortDir === 'desc' ? ' on' : ''}`} />
+                        </span>
+                      </div>
+                    </th>
+                    <th className="thSortable" onClick={() => onSort_('count')}>
+                      <div className="thInner">
+                        <span>天數</span>
+                        <span className="sortPair" aria-hidden="true">
+                          <span className={`sortTri up${sortKey === 'count' && sortDir === 'asc' ? ' on' : ''}`} />
+                          <span className={`sortTri down${sortKey === 'count' && sortDir === 'desc' ? ' on' : ''}`} />
+                        </span>
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {exportRows.map((r) => (
-                    <tr key={`${r[2]}_${r[3]}`}>
+                  {exportRowsSorted.map((r, idx) => (
+                    <tr key={`${r[2]}_${r[3]}_${idx}`}>
                       <td>{r[0]}</td>
                       <td>{r[1]}</td>
                       <td>{r[2]}</td>
@@ -913,6 +1001,10 @@ export default function DashboardPage() {
   const [attName, setAttName] = useState<string>('');
   const [attSingleBuilt, setAttSingleBuilt] = useState<Array<[string, string, string, string, number, number, number, string]>>([]);
   const [attAllBuilt, setAttAllBuilt] = useState<Array<[string, string, string, number, number, string]>>([]);
+
+  type AttAllSortKey = 'dept' | 'shift' | 'name' | 'shouldDays' | 'actDays' | 'rate';
+  const [attAllSortKey, setAttAllSortKey] = useState<AttAllSortKey>('dept');
+  const [attAllSortDir, setAttAllSortDir] = useState<'asc' | 'desc'>('asc');
 
   const [leaveTag, setLeaveTag] = useState<string>('');
   const [leaveName, setLeaveName] = useState<string>('');
@@ -1641,6 +1733,41 @@ export default function DashboardPage() {
     setAttAllBuilt([]);
   }
 
+  const attAllBuiltSorted = useMemo(() => {
+    const out = [...attAllBuilt];
+    function cmp2(a: unknown, b: unknown): number {
+      if (typeof a === 'number' && typeof b === 'number') return a - b;
+      const an = typeof a === 'string' && a.trim() !== '' ? Number(a) : (typeof a === 'number' ? a : NaN);
+      const bn = typeof b === 'string' && b.trim() !== '' ? Number(b) : (typeof b === 'number' ? b : NaN);
+      if (!Number.isNaN(an) && !Number.isNaN(bn)) return an - bn;
+      const ax = typeof a === 'string' ? a : String(a ?? '');
+      const bx = typeof b === 'string' ? b : String(b ?? '');
+      return ax.localeCompare(bx, 'zh-Hant', { numeric: true, sensitivity: 'base' });
+    }
+    const get = (r: (string | number)[]) => {
+      if (attAllSortKey === 'dept') return r[0];
+      if (attAllSortKey === 'shift') return r[1];
+      if (attAllSortKey === 'name') return r[2];
+      if (attAllSortKey === 'shouldDays') return r[3];
+      if (attAllSortKey === 'actDays') return r[4];
+      return r[5];
+    };
+    out.sort((a, b) => {
+      const v = cmp2(get(a), get(b));
+      return attAllSortDir === 'asc' ? v : -v;
+    });
+    return out;
+  }, [attAllBuilt, attAllSortKey, attAllSortDir]);
+
+  function onSortAttAll(k: AttAllSortKey) {
+    if (attAllSortKey === k) {
+      setAttAllSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setAttAllSortKey(k);
+      setAttAllSortDir(k === 'shouldDays' || k === 'actDays' || k === 'rate' ? 'desc' : 'asc');
+    }
+  }
+
   async function openWarehouseSheet(warehouse: string) {
     if (!isAdmin) return;
     if (!useGas) return;
@@ -2199,35 +2326,83 @@ export default function DashboardPage() {
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 10 }}>
                   <button
                     className="btnGhost"
-                    onClick={() => exportExcelHtml('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuilt)}
-                    disabled={!attAllBuilt.length}
+                    onClick={() => exportExcelHtml('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuiltSorted)}
+                    disabled={!attAllBuiltSorted.length}
                   >
                     Excel
                   </button>
                   <button
                     className="btnGhost"
-                    onClick={() => exportCsv('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuilt)}
-                    disabled={!attAllBuilt.length}
+                    onClick={() => exportCsv('全員出勤率統計', ['部門', '班別', '姓名', '應到天數', '實到天數', '出勤率'], attAllBuiltSorted)}
+                    disabled={!attAllBuiltSorted.length}
                   >
                     CSV
                   </button>
                 </div>
 
-                {attAllBuilt.length ? (
+                {attAllBuiltSorted.length ? (
                   <div className="tableWrap" ref={attAllWrapRef}>
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>部門</th>
-                          <th>班別</th>
-                          <th>姓名</th>
-                          <th>應到天數</th>
-                          <th>實到天數</th>
-                          <th>出勤率</th>
+                          <th className="thSortable" onClick={() => onSortAttAll('dept')}>
+                            <div className="thInner">
+                              <span>部門</span>
+                              <span className="sortPair" aria-hidden="true">
+                                <span className={`sortTri up${attAllSortKey === 'dept' && attAllSortDir === 'asc' ? ' on' : ''}`} />
+                                <span className={`sortTri down${attAllSortKey === 'dept' && attAllSortDir === 'desc' ? ' on' : ''}`} />
+                              </span>
+                            </div>
+                          </th>
+                          <th className="thSortable" onClick={() => onSortAttAll('shift')}>
+                            <div className="thInner">
+                              <span>班別</span>
+                              <span className="sortPair" aria-hidden="true">
+                                <span className={`sortTri up${attAllSortKey === 'shift' && attAllSortDir === 'asc' ? ' on' : ''}`} />
+                                <span className={`sortTri down${attAllSortKey === 'shift' && attAllSortDir === 'desc' ? ' on' : ''}`} />
+                              </span>
+                            </div>
+                          </th>
+                          <th className="thSortable" onClick={() => onSortAttAll('name')}>
+                            <div className="thInner">
+                              <span>姓名</span>
+                              <span className="sortPair" aria-hidden="true">
+                                <span className={`sortTri up${attAllSortKey === 'name' && attAllSortDir === 'asc' ? ' on' : ''}`} />
+                                <span className={`sortTri down${attAllSortKey === 'name' && attAllSortDir === 'desc' ? ' on' : ''}`} />
+                              </span>
+                            </div>
+                          </th>
+                          <th className="thSortable" onClick={() => onSortAttAll('shouldDays')}>
+                            <div className="thInner">
+                              <span>應到天數</span>
+                              <span className="sortPair" aria-hidden="true">
+                                <span className={`sortTri up${attAllSortKey === 'shouldDays' && attAllSortDir === 'asc' ? ' on' : ''}`} />
+                                <span className={`sortTri down${attAllSortKey === 'shouldDays' && attAllSortDir === 'desc' ? ' on' : ''}`} />
+                              </span>
+                            </div>
+                          </th>
+                          <th className="thSortable" onClick={() => onSortAttAll('actDays')}>
+                            <div className="thInner">
+                              <span>實到天數</span>
+                              <span className="sortPair" aria-hidden="true">
+                                <span className={`sortTri up${attAllSortKey === 'actDays' && attAllSortDir === 'asc' ? ' on' : ''}`} />
+                                <span className={`sortTri down${attAllSortKey === 'actDays' && attAllSortDir === 'desc' ? ' on' : ''}`} />
+                              </span>
+                            </div>
+                          </th>
+                          <th className="thSortable" onClick={() => onSortAttAll('rate')}>
+                            <div className="thInner">
+                              <span>出勤率</span>
+                              <span className="sortPair" aria-hidden="true">
+                                <span className={`sortTri up${attAllSortKey === 'rate' && attAllSortDir === 'asc' ? ' on' : ''}`} />
+                                <span className={`sortTri down${attAllSortKey === 'rate' && attAllSortDir === 'desc' ? ' on' : ''}`} />
+                              </span>
+                            </div>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
-                        {attAllBuilt.map((r, i) => (
+                        {attAllBuiltSorted.map((r, i) => (
                           <tr key={i}>
                             <td>{r[0]}</td>
                             <td>{r[1]}</td>
