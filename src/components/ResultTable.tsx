@@ -40,6 +40,9 @@ export default function ResultTable<T extends Record<string, unknown>>({
   const headCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
   const [leftOffsets, setLeftOffsets] = useState<number[]>([]);
 
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  const hoverColRef = useRef<number | null>(null);
+
   const sorted = useMemo(() => {
     if (!sortKey) return rows;
     const out = [...rows];
@@ -83,75 +86,109 @@ export default function ResultTable<T extends Record<string, unknown>>({
     setLeftOffsets(offs);
   }, [columns, frozenLeft, rows.length]);
 
+  function setHoverCol(next: number | null) {
+    const table = tableRef.current;
+    if (!table) return;
+
+    const prev = hoverColRef.current;
+    if (prev === next) return;
+
+    if (prev != null) {
+      table
+        .querySelectorAll(`[data-col="${prev}"]`)
+        .forEach((el) => el.classList.remove('colHover'));
+    }
+    if (next != null) {
+      table
+        .querySelectorAll(`[data-col="${next}"]`)
+        .forEach((el) => el.classList.add('colHover'));
+    }
+
+    hoverColRef.current = next;
+  }
+
   return (
     <div className="tableWrap">
-      <table className="table">
+      <table
+        className="table"
+        ref={tableRef}
+        onMouseOver={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          const cell = target.closest('td,th') as HTMLElement | null;
+          if (!cell) return;
+          const raw = cell.getAttribute('data-col');
+          if (raw == null) return;
+          const idx = Number(raw);
+          if (!Number.isFinite(idx)) return;
+          setHoverCol(idx);
+        }}
+        onMouseLeave={() => {
+          setHoverCol(null);
+        }}
+      >
         <thead>
           <tr>
-            {columns.map((c) => (
-              (() => {
-                const colIndex = columns.findIndex((x) => x.key === c.key);
-                const isFrozen = Boolean(frozenLeft && colIndex < frozenLeft);
-                const left = isFrozen ? leftOffsets[colIndex] ?? colIndex * 0 : undefined;
-                return (
-              <th
-                key={c.key}
-                className={`${c.sortable ? 'thSortable' : ''}${isFrozen ? ' thFrozen' : ''}`.trim() || undefined}
-                onClick={() => onSort(c)}
-                ref={(el) => {
-                  headCellRefs.current[colIndex] = el;
-                }}
-                style={
-                  isFrozen
-                    ? { position: 'sticky', left: left != null ? `${left}px` : undefined, zIndex: 3 }
-                    : undefined
-                }
-              >
-                <div className="thInner">
-                  <span>{c.header}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {c.sortable ? (
-                      <span className="sortPair" aria-hidden="true">
-                        <span
-                          className={`sortTri up${sortKey === c.key && sortDir === 'asc' ? ' on' : ''}`}
-                        />
-                        <span
-                          className={`sortTri down${sortKey === c.key && sortDir === 'desc' ? ' on' : ''}`}
-                        />
-                      </span>
-                    ) : null}
+            {columns.map((c, colIndex) => {
+              const isFrozen = Boolean(frozenLeft && colIndex < frozenLeft);
+              const left = isFrozen ? leftOffsets[colIndex] ?? colIndex * 0 : undefined;
+              return (
+                <th
+                  key={c.key}
+                  data-col={colIndex}
+                  className={`${c.sortable ? 'thSortable' : ''}${isFrozen ? ' thFrozen' : ''}`.trim() || undefined}
+                  onClick={() => onSort(c)}
+                  ref={(el) => {
+                    headCellRefs.current[colIndex] = el;
+                  }}
+                  style={
+                    isFrozen
+                      ? { position: 'sticky', left: left != null ? `${left}px` : undefined, zIndex: 3 }
+                      : undefined
+                  }
+                >
+                  <div className="thInner">
+                    <span>{c.header}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {c.sortable ? (
+                        <span className="sortPair" aria-hidden="true">
+                          <span
+                            className={`sortTri up${sortKey === c.key && sortDir === 'asc' ? ' on' : ''}`}
+                          />
+                          <span
+                            className={`sortTri down${sortKey === c.key && sortDir === 'desc' ? ' on' : ''}`}
+                          />
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </th>
-                );
-              })()
-            ))}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody ref={tbodyRef ?? undefined}>
           {sorted.map((r, idx) => (
             <tr key={(r as any).id ?? idx}>
-              {columns.map((c) => (
-                (() => {
-                  const colIndex = columns.findIndex((x) => x.key === c.key);
-                  const isFrozen = Boolean(frozenLeft && colIndex < frozenLeft);
-                  const left = isFrozen ? leftOffsets[colIndex] ?? colIndex * 0 : undefined;
-                  return (
-                <td
-                  key={c.key}
-                  className={isFrozen ? 'tdFrozen' : undefined}
-                  style={{
-                    ...(cellStyle ? (cellStyle({ row: r, col: c, colIndex, rowIndex: idx }) ?? {}) : {}),
-                    ...(isFrozen
-                      ? { position: 'sticky', left: left != null ? `${left}px` : undefined, zIndex: 2 }
-                      : {}),
-                  }}
-                >
-                  {c.render ? c.render(r) : String(r[c.key] ?? '')}
-                </td>
-                  );
-                })()
-              ))}
+              {columns.map((c, colIndex) => {
+                const isFrozen = Boolean(frozenLeft && colIndex < frozenLeft);
+                const left = isFrozen ? leftOffsets[colIndex] ?? colIndex * 0 : undefined;
+                return (
+                  <td
+                    key={c.key}
+                    data-col={colIndex}
+                    className={isFrozen ? 'tdFrozen' : undefined}
+                    style={{
+                      ...(cellStyle ? (cellStyle({ row: r, col: c, colIndex, rowIndex: idx }) ?? {}) : {}),
+                      ...(isFrozen
+                        ? { position: 'sticky', left: left != null ? `${left}px` : undefined, zIndex: 2 }
+                        : {}),
+                    }}
+                  >
+                    {c.render ? c.render(r) : String(r[c.key] ?? '')}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
