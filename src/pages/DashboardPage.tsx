@@ -1900,7 +1900,7 @@ export default function DashboardPage() {
     if (cached) {
       const url = `https://docs.google.com/spreadsheets/d/${cached}/edit`;
       const w = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!w) window.alert('瀏覽器可能阻擋彈出視窗。請允許後再點一次「開啟試算表」。');
+      if (!w) return;
       return;
     }
 
@@ -1913,7 +1913,7 @@ export default function DashboardPage() {
       });
       const url = `https://docs.google.com/spreadsheets/d/${sid}/edit`;
       const w = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!w) window.alert('瀏覽器可能阻擋彈出視窗。請允許後再點一次「開啟試算表」。');
+      if (!w) return;
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     } finally {
