@@ -34,10 +34,10 @@ export type GasWarehouseIdResult =
 type CacheEntry<T> = { ts: number; value: T };
 
 const SHEETS_CACHE = new Map<string, CacheEntry<string[]>>();
-const SHEETS_CACHE_MS = 5 * 60_000;
+const SHEETS_CACHE_MS = 5_000;
 
 const QUERY_CACHE = new Map<string, CacheEntry<GasPayload>>();
-const QUERY_CACHE_MS = 2 * 60_000;
+const QUERY_CACHE_MS = 5_000;
 
 const WAREHOUSE_ID_CACHE = new Map<string, CacheEntry<string>>();
 const WAREHOUSE_ID_CACHE_MS = 10 * 60_000;
@@ -188,16 +188,42 @@ export async function gasGetSheets(warehouse: string): Promise<string[]> {
   }
 }
 
+export async function gasGetSheetsNoCache(warehouse: string): Promise<string[]> {
+  const base = getBaseUrl();
+  if (!base) throw new Error('尚未設定 VITE_GAS_URL');
+  const ck = `${base}|${warehouse}|nocache`;
+
+  const inflight = SHEETS_INFLIGHT.get(ck);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    const url = toUrl(base, { mode: 'getSheets', wh: warehouse, nocache: '1', t: String(Date.now()) });
+    const json = await fetchJsonNoStore<{ sheetNames?: string[]; error?: string }>(url);
+    if (json.error) throw new Error(json.error);
+    const out = Array.isArray(json.sheetNames) ? json.sheetNames : [];
+    return out;
+  })();
+
+  SHEETS_INFLIGHT.set(ck, p);
+  try {
+    return await p;
+  } finally {
+    SHEETS_INFLIGHT.delete(ck);
+  }
+}
+
 export async function gasQuerySheet(
   warehouse: string,
   sheet: string,
-  name?: string
+  name?: string,
+  options?: { noCache?: boolean }
 ): Promise<GasPayload> {
   const base = getBaseUrl();
   if (!base) throw new Error('尚未設定 VITE_GAS_URL');
   const ck = `${base}|${warehouse}|${sheet}|${(name || '').trim()}`;
+  const noCache = Boolean(options?.noCache);
   const hit = QUERY_CACHE.get(ck);
-  if (hit && Date.now() - hit.ts < QUERY_CACHE_MS) return hit.value;
+  if (!noCache && hit && Date.now() - hit.ts < QUERY_CACHE_MS) return hit.value;
 
   const inflight = QUERY_INFLIGHT.get(ck);
   if (inflight) return inflight;
@@ -212,7 +238,7 @@ export async function gasQuerySheet(
     });
     const json = await fetchJsonNoStore<GasPayload>(url);
     if ((json as any).error) throw new Error(String((json as any).error));
-    QUERY_CACHE.set(ck, { ts: Date.now(), value: json });
+    if (!noCache) QUERY_CACHE.set(ck, { ts: Date.now(), value: json });
     return json;
   })();
 

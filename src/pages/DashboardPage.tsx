@@ -939,6 +939,7 @@ export default function DashboardPage() {
   const isAdmin = Boolean(user?.isAdmin);
 
   const [availablePages, setAvailablePages] = useState<string[]>(mockPages);
+  const [pagesLoading, setPagesLoading] = useState(false);
   const [query, setQuery] = useState<QueryParams>({
     warehouse: (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0],
     page: mockPages[0],
@@ -1216,7 +1217,6 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!useGas) return;
     if (!user) return;
-    if (status === 'loading') return;
     if (!query.page) return;
     doQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1234,9 +1234,12 @@ export default function DashboardPage() {
 
   async function refreshPages(warehouse: string) {
     if (!useGas) {
+      setPagesLoading(false);
       setAvailablePages(mockPages);
       return;
     }
+
+    setPagesLoading(true);
 
     const hit = PAGES_CACHE.get(warehouse);
     if (hit && Date.now() - hit.ts < PAGES_CACHE_MS) {
@@ -1244,6 +1247,7 @@ export default function DashboardPage() {
       setAvailablePages(clean.length ? clean : mockPages);
       const prefer = clean.find((p) => p.includes('班表')) || '';
       setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (prefer || clean[0] || s.page) }));
+      setPagesLoading(false);
       return;
     }
     try {
@@ -1255,6 +1259,8 @@ export default function DashboardPage() {
       setQuery((s) => ({ ...s, page: clean.includes(s.page) ? s.page : (prefer || clean[0] || s.page) }));
     } catch {
       setAvailablePages(mockPages);
+    } finally {
+      setPagesLoading(false);
     }
   }
 
@@ -1926,6 +1932,9 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   if (!isAdmin && useGas) return;
                   const w = e.target.value;
+                  setError('');
+                  setStatus('loading');
+                  setResult(null);
                   // ✅ 避免切倉時先用舊分頁觸發一次 doQuery（會造成切倉很慢）
                   setQuery((s) => ({ ...s, warehouse: w, page: '' }));
                   refreshPages(w);
@@ -1961,7 +1970,14 @@ export default function DashboardPage() {
 
             <label className="filter">
               <span>分頁</span>
-              <select value={query.page} onChange={(e) => setQuery((s) => ({ ...s, page: e.target.value }))}>
+              <select
+                value={query.page}
+                onChange={(e) => setQuery((s) => ({ ...s, page: e.target.value }))}
+                disabled={pagesLoading || !availablePages.length}
+              >
+                {pagesLoading || !availablePages.length ? (
+                  <option value="">載入分頁中…</option>
+                ) : null}
                 {availablePages.map((p) => (
                   <option key={p} value={p}>{p}</option>
                 ))}

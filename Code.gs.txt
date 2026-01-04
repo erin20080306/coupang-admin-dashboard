@@ -333,7 +333,7 @@ function getSheetNames_(spreadsheetId) {
 
   try {
     var json = JSON.stringify(out);
-    if (json.length < 90000) cache.put(cacheKey, json, 120);
+    if (json.length < 90000) cache.put(cacheKey, json, 5);
   } catch (_) { }
 
   return out;
@@ -569,7 +569,7 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
     };
   }
 
-  // 依分頁尺寸簡單快取 60 秒（未依姓名區分，姓名篩選在快取之後）
+  // 依分頁尺寸簡單快取 5 秒（未依姓名區分，姓名篩選在快取之後）
   var cache = CacheService.getScriptCache();
   var cacheKey = 'grid:' + spreadsheetId + ':' + sheetName + ':' + lastRow + 'x' + lastCol;
   var base = null;
@@ -586,7 +586,7 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
     base.counts = { rows: base.rows.length, cols: base.headers.length };
     try {
       var json = JSON.stringify(base);
-      if (json.length < 90000) cache.put(cacheKey, json, 60);
+      if (json.length < 90000) cache.put(cacheKey, json, 5);
     } catch (_) { }
   }
 
