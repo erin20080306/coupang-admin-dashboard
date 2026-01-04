@@ -96,7 +96,7 @@ export default function ResultTable<T extends Record<string, unknown>>({
                 return (
               <th
                 key={c.key}
-                className={c.sortable ? 'thSortable' : undefined}
+                className={`${c.sortable ? 'thSortable' : ''}${isFrozen ? ' thFrozen' : ''}`.trim() || undefined}
                 onClick={() => onSort(c)}
                 ref={(el) => {
                   headCellRefs.current[colIndex] = el;
@@ -139,10 +139,11 @@ export default function ResultTable<T extends Record<string, unknown>>({
                   return (
                 <td
                   key={c.key}
+                  className={isFrozen ? 'tdFrozen' : undefined}
                   style={{
                     ...(cellStyle ? (cellStyle({ row: r, col: c, colIndex, rowIndex: idx }) ?? {}) : {}),
                     ...(isFrozen
-                      ? { position: 'sticky', left: left != null ? `${left}px` : undefined, zIndex: 2, background: 'white' }
+                      ? { position: 'sticky', left: left != null ? `${left}px` : undefined, zIndex: 2 }
                       : {}),
                   }}
                 >
