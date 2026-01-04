@@ -112,7 +112,7 @@ function DeptKpi({
     );
   }
 
-  const topNames = stat.deptList.slice(0, 4).map((x) => x.dept).join('、');
+  const topNames = stat.deptList.map((x) => x.dept).join('、');
 
   return (
     <>
@@ -126,7 +126,9 @@ function DeptKpi({
       </div>
       <div className="kpi">
         <div className="kpiLabel">部門別</div>
-        <div className="kpiValue">{topNames || '—'}</div>
+        <div className="kpiValue" title={topNames || ''} style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+          {topNames || '—'}
+        </div>
       </div>
     </>
   );
