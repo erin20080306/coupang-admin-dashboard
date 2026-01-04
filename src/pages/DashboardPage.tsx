@@ -1300,33 +1300,7 @@ export default function DashboardPage() {
           return Array.isArray(a) && a.length > 0;
         });
 
-        if (!isHoursPage && dateCols.length && query.page.includes('班表')) {
-          // 先用 _att / cell fallback 快速算一次（加速切換時的首屏）
-          filteredRows.forEach((row) => {
-            const rawRow = row as any;
-            const nm = getRawNameFromRow(rawRow);
-            if (!nm) return;
-            const a = calcRowAttendance(rawRow, dateCols, headers, headersISO, null, nm);
-            rawRow._attendance = a;
-            rawRow._attendanceRate = a.rate;
-          });
-
-          const listQuick: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
-          const seenQuick = new Set<string>();
-          filteredRows.forEach((row) => {
-            const nm = getNameFromRow(row as any);
-            if (!nm) return;
-            if (seenQuick.has(nm)) return;
-            const a = (row as any)._attendance as AttendanceSummary | undefined;
-            if (!a) return;
-            if (a.expected === 0) return;
-            seenQuick.add(nm);
-            listQuick.push({ id: `att_${nm}`, name: nm, summary: a });
-          });
-          listQuick.sort((a, b) => a.summary.rate - b.summary.rate);
-          setAttWorstSourcePage(query.page);
-          setAttAll(listQuick);
-        }
+        const shouldComputeAttendance = !isHoursPage && dateCols.length && query.page.includes('班表');
 
         if (!filteredRows.length) {
           setStatus('empty');
@@ -1334,20 +1308,12 @@ export default function DashboardPage() {
           return;
         }
 
-        const stat = filteredRows.reduce(
-          (acc, r) => {
-            acc.total += 1;
-            const a = (r as any)._attendance as AttendanceSummary | undefined;
-            if (a) {
-              acc.attended += a.attended;
-              acc.absent += Math.max(0, a.expected - a.attended);
-            }
-            return acc;
-          },
-          { total: 0, attended: 0, late: 0, absent: 0 }
-        );
+        if (shouldComputeAttendance) {
+          setAttWorstSourcePage(query.page);
+          setAttAll([]);
+        }
 
-        setResult({ rows: filteredRows as any, stats: stat });
+        setResult({ rows: filteredRows as any, stats: { total: filteredRows.length, attended: 0, late: 0, absent: 0 } });
         setStatus('success');
         setAttWorstOpen(false);
         setAttBestOpen(false);
@@ -1360,6 +1326,65 @@ export default function DashboardPage() {
         setAttSingleBuilt([]);
         setAttAllBuilt([]);
         setLeaveTag('');
+
+        if (shouldComputeAttendance) {
+          void (async () => {
+            try {
+              await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+              if (token !== queryTokenRef.current) return;
+
+              const outRows = (filteredRows as any[]).map((r) => ({ ...(r as any) }));
+              const list: Array<{ id: string; name: string; summary: AttendanceSummary }> = [];
+              const seen = new Set<string>();
+              const chunk = 25;
+
+              for (let i = 0; i < outRows.length; i++) {
+                if (token !== queryTokenRef.current) return;
+                const rawRow = outRows[i] as any;
+                const nmRaw = getRawNameFromRow(rawRow);
+                if (nmRaw) {
+                  const a = calcRowAttendance(rawRow, dateCols, headers, headersISO, null, nmRaw);
+                  rawRow._attendance = a;
+                  rawRow._attendanceRate = a.rate;
+
+                  const nm = getNameFromRow(rawRow);
+                  if (nm && !seen.has(nm) && a.expected !== 0) {
+                    seen.add(nm);
+                    list.push({ id: `att_${nm}`, name: nm, summary: a });
+                  }
+                }
+
+                if (i % chunk === chunk - 1) {
+                  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+                }
+              }
+
+              list.sort((a, b) => a.summary.rate - b.summary.rate);
+
+              const stat2 = outRows.reduce(
+                (acc, r) => {
+                  acc.total += 1;
+                  const a = (r as any)._attendance as AttendanceSummary | undefined;
+                  if (a) {
+                    acc.attended += a.attended;
+                    acc.absent += Math.max(0, a.expected - a.attended);
+                  }
+                  return acc;
+                },
+                { total: 0, attended: 0, late: 0, absent: 0 }
+              );
+
+              if (token !== queryTokenRef.current) return;
+              setResult((prev) => {
+                if (!prev || token !== queryTokenRef.current) return prev;
+                return { ...prev, rows: outRows as any, stats: stat2 };
+              });
+              setAttAll(list);
+            } catch {
+              // ignore
+            }
+          })();
+        }
 
         // 背景補齊：若是班表，抓出勤記錄 presentSet 後再重算一次（維持正確性）
         if (!isHoursPage && dateCols.length && query.page.includes('班表') && !hasAnyAttArray) {
