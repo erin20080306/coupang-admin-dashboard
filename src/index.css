@@ -232,6 +232,18 @@ button {
   overflow: hidden;
 }
 
+.kpiRow .kpi.kpiSmall {
+  padding: 8px;
+}
+
+.kpiRow .kpi.kpiSmall .kpiLabel {
+  font-size: 11px;
+}
+
+.kpiRow .kpi.kpiSmall .kpiValue {
+  font-size: 18px;
+}
+
 .kpiRow .kpi::before {
   content: '';
   position: absolute;

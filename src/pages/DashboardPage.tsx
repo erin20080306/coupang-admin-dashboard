@@ -120,13 +120,17 @@ function DeptKpi({
         <div className="kpiLabel">部門數</div>
         <div className="kpiValue">{stat.deptList.length}</div>
       </div>
-      <div className="kpi">
+      <div className="kpi kpiSmall">
         <div className="kpiLabel">分頁人數</div>
         <div className="kpiValue">{stat.totalPeople}</div>
       </div>
       <div className="kpi">
         <div className="kpiLabel">部門別</div>
-        <div className="kpiValue" title={topNames || ''} style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+        <div
+          className="kpiValue"
+          title={topNames || ''}
+          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
           {topNames || '—'}
         </div>
       </div>
@@ -1956,7 +1960,7 @@ export default function DashboardPage() {
                   <div className="kpiValue">{stats.total}</div>
                 </div>
                 <DeptKpi rows={rows} headers={gasHeaders} />
-                <div className="kpi">
+                <div className="kpi kpiSmall">
                   <div className="kpiLabel">分頁人數</div>
                   <div className="kpiValue">{pageStats.total}</div>
                 </div>
@@ -1966,11 +1970,11 @@ export default function DashboardPage() {
                 </div>
                 {!isHoursPage && isAttPage && attendanceAllAgg.n ? (
                   <>
-                    <div className="kpi">
+                    <div className="kpi kpiSmall">
                       <div className="kpiLabel">全員出勤率</div>
                       <div className="kpiValue">{Math.round(attendanceAllAgg.rate * 100)}%</div>
                     </div>
-                    <div className="kpi">
+                    <div className="kpi kpiSmall">
                       <div className="kpiLabel">全員出勤（合計）</div>
                       <div className="kpiValue">{attendanceAllAgg.attended}/{attendanceAllAgg.expected}</div>
                     </div>
