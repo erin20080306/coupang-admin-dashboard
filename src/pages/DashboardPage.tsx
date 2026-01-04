@@ -946,6 +946,8 @@ export default function DashboardPage() {
     birthdayOrPhone: '',
   });
 
+  const [openSheetLoading, setOpenSheetLoading] = useState(false);
+
   const [openSheetWarehouse, setOpenSheetWarehouse] = useState<string>(
     (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0]
   );
@@ -1771,9 +1773,44 @@ export default function DashboardPage() {
   async function openWarehouseSheet(warehouse: string) {
     if (!isAdmin) return;
     if (!useGas) return;
-    const sid = await gasGetWarehouseId(warehouse);
-    window.open(`https://docs.google.com/spreadsheets/d/${sid}/edit`, '_blank', 'noopener,noreferrer');
+
+    const w = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    setOpenSheetLoading(true);
+    try {
+      const sid = await gasGetWarehouseId(warehouse);
+      const url = `https://docs.google.com/spreadsheets/d/${sid}/edit`;
+      if (w && !w.closed) {
+        w.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (e) {
+      try {
+        if (w && !w.closed) w.close();
+      } catch {
+        // ignore
+      }
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOpenSheetLoading(false);
+    }
   }
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!useGas) return;
+    void gasGetWarehouseId(query.warehouse).catch(() => {
+      // ignore
+    });
+  }, [isAdmin, useGas, query.warehouse]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!useGas) return;
+    void gasGetWarehouseId(openSheetWarehouse).catch(() => {
+      // ignore
+    });
+  }, [isAdmin, useGas, openSheetWarehouse]);
 
   async function findWarehouseByNameAndMaybeSwitch() {
     if (!isAdmin) return;
@@ -1823,20 +1860,21 @@ export default function DashboardPage() {
         <div className="topbarRight">
           {isAdmin && useGas ? (
             <>
-              <button className="btnGhost" onClick={() => void openWarehouseSheet(query.warehouse)}>
-                開啟本倉試算表
+              <button className="btnGhost" onClick={() => void openWarehouseSheet(query.warehouse)} disabled={openSheetLoading}>
+                {openSheetLoading ? '開啟中…' : '開啟本倉試算表'}
               </button>
               <select
                 className="btnGhost"
                 value={openSheetWarehouse}
                 onChange={(e) => setOpenSheetWarehouse(e.target.value)}
+                disabled={openSheetLoading}
               >
                 {mockWarehouses.map((w) => (
                   <option key={`open_${w}`} value={w}>{w}</option>
                 ))}
               </select>
-              <button className="btnGhost" onClick={() => void openWarehouseSheet(openSheetWarehouse)}>
-                開啟所選倉別
+              <button className="btnGhost" onClick={() => void openWarehouseSheet(openSheetWarehouse)} disabled={openSheetLoading}>
+                {openSheetLoading ? '開啟中…' : '開啟所選倉別'}
               </button>
             </>
           ) : null}
