@@ -939,6 +939,48 @@ export default function DashboardPage() {
   const user = getUser();
   const isAdmin = Boolean(user?.isAdmin);
 
+  useEffect(() => {
+    function isEditableTarget(el: Element | null): boolean {
+      if (!el) return false;
+      const tag = (el as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if ((el as HTMLElement).isContentEditable) return true;
+      return false;
+    }
+
+    function pickTableWrap(): HTMLElement | null {
+      const hovered = document.querySelector('.tableWrap:hover') as HTMLElement | null;
+      if (hovered) return hovered;
+
+      const active = document.activeElement as HTMLElement | null;
+      const byActive = (active?.closest?.('.tableWrap') ?? null) as HTMLElement | null;
+      if (byActive) return byActive;
+
+      const fallback = (mainTableWrapRef.current?.querySelector?.('.tableWrap') ?? null) as HTMLElement | null;
+      return fallback;
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      const active = document.activeElement;
+      if (isEditableTarget(active)) return;
+
+      const wrap = pickTableWrap();
+      if (!wrap) return;
+
+      const step = Math.max(120, Math.floor(wrap.clientWidth * (e.shiftKey ? 0.9 : 0.35)));
+      const delta = e.key === 'ArrowRight' ? step : -step;
+
+      e.preventDefault();
+      wrap.scrollBy({ left: delta, behavior: 'smooth' });
+    }
+
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const [availablePages, setAvailablePages] = useState<string[]>(mockPages);
   const [pagesLoading, setPagesLoading] = useState(false);
   const [query, setQuery] = useState<QueryParams>({
