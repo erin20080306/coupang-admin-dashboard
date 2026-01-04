@@ -126,11 +126,7 @@ function DeptKpi({
       </div>
       <div className="kpi">
         <div className="kpiLabel">部門別</div>
-        <div
-          className="kpiValue"
-          title={topNames || ''}
-          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-        >
+        <div className="kpiValue kpiDeptList" title={topNames || ''}>
           {topNames || '—'}
         </div>
       </div>
