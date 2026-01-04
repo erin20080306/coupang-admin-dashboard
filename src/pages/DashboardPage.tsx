@@ -934,6 +934,7 @@ export default function DashboardPage() {
   const attSingleWrapRef = useRef<HTMLDivElement | null>(null);
   const attAllWrapRef = useRef<HTMLDivElement | null>(null);
   const queryTokenRef = useRef(0);
+  const skipAutoQueryRef = useRef(false);
   const useGas = gasIsConfigured();
   const user = getUser();
   const isAdmin = Boolean(user?.isAdmin);
@@ -948,6 +949,7 @@ export default function DashboardPage() {
   });
 
   const [openSheetLoading, setOpenSheetLoading] = useState(false);
+  const [openSheetSidByWh, setOpenSheetSidByWh] = useState<Record<string, string>>({});
 
   const [openSheetWarehouse, setOpenSheetWarehouse] = useState<string>(
     (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0]
@@ -957,6 +959,7 @@ export default function DashboardPage() {
   const [findWhLoading, setFindWhLoading] = useState(false);
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'empty'>('idle');
+  const [isSwitching, setIsSwitching] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string>('');
 
@@ -1218,6 +1221,10 @@ export default function DashboardPage() {
     if (!useGas) return;
     if (!user) return;
     if (!query.page) return;
+    if (skipAutoQueryRef.current) {
+      skipAutoQueryRef.current = false;
+      return;
+    }
     doQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useGas, query.warehouse, query.page]);
@@ -1267,14 +1274,35 @@ export default function DashboardPage() {
   async function doQuery() {
     const token = ++queryTokenRef.current;
     setError('');
-    setStatus('loading');
-    setResult(null);
+    const hadPrev = Boolean(result);
+    setIsSwitching(hadPrev);
+    if (!hadPrev) {
+      setStatus('loading');
+      setResult(null);
+    }
 
     try {
       if (useGas) {
         const apiName = isAdmin ? '' : (user?.name || '');
         const payload = await gasQuerySheet(query.warehouse, query.page, apiName);
         if (token !== queryTokenRef.current) return;
+
+        const sheetsFromPayload = (payload as any).availableSheets;
+        if (Array.isArray(sheetsFromPayload) && sheetsFromPayload.length) {
+          const clean = sheetsFromPayload.map((p: any) => String(p ?? '').trim()).filter(Boolean);
+          if (clean.length) {
+            setAvailablePages(clean);
+            PAGES_CACHE.set(query.warehouse, { ts: Date.now(), pages: clean });
+          }
+        }
+        setPagesLoading(false);
+
+        const usedSheet = String((payload as any).sheetNameUsed || '').trim();
+        if (usedSheet && usedSheet !== query.page) {
+          skipAutoQueryRef.current = true;
+          setQuery((s) => ({ ...s, page: usedSheet }));
+        }
+
         const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
         setGasHeadersISO(headersISO);
         let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
@@ -1321,6 +1349,7 @@ export default function DashboardPage() {
 
         setResult({ rows: filteredRows as any, stats: { total: filteredRows.length, attended: 0, late: 0, absent: 0 } });
         setStatus('success');
+        setIsSwitching(false);
         setAttWorstOpen(false);
         setAttBestOpen(false);
         setManualFrozenLeft(0);
@@ -1453,15 +1482,20 @@ export default function DashboardPage() {
       if (!res.rows.length) {
         setStatus('empty');
         setResult(res);
+        setIsSwitching(false);
         return;
       }
       setResult(res);
       setStatus('success');
+      setIsSwitching(false);
       setAttWorstOpen(false);
       setAttBestOpen(false);
     } catch (e) {
+      console.error(e);
+      setPagesLoading(false);
+      setIsSwitching(false);
       setStatus('error');
-      setError(e instanceof Error ? e.message : '查詢失敗');
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -1805,22 +1839,13 @@ export default function DashboardPage() {
     if (!isAdmin) return;
     if (!useGas) return;
 
-    const w = window.open('about:blank', '_blank', 'noopener,noreferrer');
     setOpenSheetLoading(true);
     try {
-      const sid = await gasGetWarehouseId(warehouse);
+      const sid = openSheetSidByWh[warehouse];
+      if (!sid) return;
       const url = `https://docs.google.com/spreadsheets/d/${sid}/edit`;
-      if (w && !w.closed) {
-        w.location.href = url;
-      } else {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (e) {
-      try {
-        if (w && !w.closed) w.close();
-      } catch {
-        // ignore
-      }
       window.alert(e instanceof Error ? e.message : String(e));
     } finally {
       setOpenSheetLoading(false);
@@ -1830,17 +1855,27 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isAdmin) return;
     if (!useGas) return;
-    void gasGetWarehouseId(query.warehouse).catch(() => {
-      // ignore
-    });
+    void (async () => {
+      try {
+        const sid = await gasGetWarehouseId(query.warehouse);
+        setOpenSheetSidByWh((prev) => (prev[query.warehouse] === sid ? prev : { ...prev, [query.warehouse]: sid }));
+      } catch {
+        // ignore
+      }
+    })();
   }, [isAdmin, useGas, query.warehouse]);
 
   useEffect(() => {
     if (!isAdmin) return;
     if (!useGas) return;
-    void gasGetWarehouseId(openSheetWarehouse).catch(() => {
-      // ignore
-    });
+    void (async () => {
+      try {
+        const sid = await gasGetWarehouseId(openSheetWarehouse);
+        setOpenSheetSidByWh((prev) => (prev[openSheetWarehouse] === sid ? prev : { ...prev, [openSheetWarehouse]: sid }));
+      } catch {
+        // ignore
+      }
+    })();
   }, [isAdmin, useGas, openSheetWarehouse]);
 
   async function findWarehouseByNameAndMaybeSwitch() {
@@ -1858,8 +1893,8 @@ export default function DashboardPage() {
       }
       const ok = window.confirm(`姓名「${nm}」屬於倉別 ${wh}。是否切換到該倉？`);
       if (!ok) return;
-      setQuery((s) => ({ ...s, warehouse: wh, page: '' }));
-      await refreshPages(wh);
+      setPagesLoading(true);
+      setQuery((s) => ({ ...s, warehouse: wh, page: '出勤記錄' }));
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1891,8 +1926,12 @@ export default function DashboardPage() {
         <div className="topbarRight">
           {isAdmin && useGas ? (
             <>
-              <button className="btnGhost" onClick={() => void openWarehouseSheet(query.warehouse)} disabled={openSheetLoading}>
-                {openSheetLoading ? '開啟中…' : '開啟本倉試算表'}
+              <button
+                className="btnGhost"
+                onClick={() => void openWarehouseSheet(query.warehouse)}
+                disabled={openSheetLoading || !openSheetSidByWh[query.warehouse]}
+              >
+                {openSheetLoading ? '開啟中…' : (openSheetSidByWh[query.warehouse] ? '開啟本倉試算表' : '準備中…')}
               </button>
               <select
                 className="btnGhost"
@@ -1904,8 +1943,12 @@ export default function DashboardPage() {
                   <option key={`open_${w}`} value={w}>{w}</option>
                 ))}
               </select>
-              <button className="btnGhost" onClick={() => void openWarehouseSheet(openSheetWarehouse)} disabled={openSheetLoading}>
-                {openSheetLoading ? '開啟中…' : '開啟所選倉別'}
+              <button
+                className="btnGhost"
+                onClick={() => void openWarehouseSheet(openSheetWarehouse)}
+                disabled={openSheetLoading || !openSheetSidByWh[openSheetWarehouse]}
+              >
+                {openSheetLoading ? '開啟中…' : (openSheetSidByWh[openSheetWarehouse] ? '開啟所選倉別' : '準備中…')}
               </button>
             </>
           ) : null}
@@ -1933,11 +1976,10 @@ export default function DashboardPage() {
                   if (!isAdmin && useGas) return;
                   const w = e.target.value;
                   setError('');
-                  setStatus('loading');
-                  setResult(null);
+                  setIsSwitching(true);
+                  setPagesLoading(true);
                   // ✅ 避免切倉時先用舊分頁觸發一次 doQuery（會造成切倉很慢）
-                  setQuery((s) => ({ ...s, warehouse: w, page: '' }));
-                  refreshPages(w);
+                  setQuery((s) => ({ ...s, warehouse: w, page: '出勤記錄' }));
                 }}
                 disabled={useGas && !isAdmin}
               >
@@ -1994,10 +2036,10 @@ export default function DashboardPage() {
             </label>
 
             <div className="filterActions">
-              <button className="btnPrimary" onClick={doQuery} disabled={status === 'loading'}>
-                {status === 'loading' ? '查詢中…' : '查詢'}
+              <button className="btnPrimary" onClick={doQuery} disabled={status === 'loading' || isSwitching || pagesLoading}>
+                {status === 'loading' || isSwitching ? '查詢中…' : '查詢'}
               </button>
-              <button className="btnSecondary" onClick={() => setSearch('')} disabled={status === 'loading'}>
+              <button className="btnSecondary" onClick={() => setSearch('')} disabled={status === 'loading' || isSwitching}>
                 清除搜尋
               </button>
             </div>
