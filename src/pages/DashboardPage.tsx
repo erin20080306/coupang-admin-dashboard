@@ -949,7 +949,22 @@ export default function DashboardPage() {
   });
 
   const [openSheetLoading, setOpenSheetLoading] = useState(false);
-  const [openSheetSidByWh, setOpenSheetSidByWh] = useState<Record<string, string>>({});
+  const OPEN_SHEET_SID_CACHE_KEY = 'coupang_open_sheet_sid_by_wh_v1';
+  const [openSheetSidByWh, setOpenSheetSidByWh] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(OPEN_SHEET_SID_CACHE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      if (!parsed || typeof parsed !== 'object') return {};
+      const out: Record<string, string> = {};
+      Object.keys(parsed).forEach((k) => {
+        const v = String((parsed as any)[k] ?? '').trim();
+        if (k && v) out[k] = v;
+      });
+      return out;
+    } catch {
+      return {};
+    }
+  });
 
   const [openSheetWarehouse, setOpenSheetWarehouse] = useState<string>(
     (!isAdmin && useGas && user?.warehouseKey) ? (user.warehouseKey || mockWarehouses[0]) : mockWarehouses[0]
@@ -1839,12 +1854,24 @@ export default function DashboardPage() {
     if (!isAdmin) return;
     if (!useGas) return;
 
+    const cached = openSheetSidByWh[warehouse];
+    if (cached) {
+      const url = `https://docs.google.com/spreadsheets/d/${cached}/edit`;
+      const w = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!w) window.alert('瀏覽器可能阻擋彈出視窗。請允許後再點一次「開啟試算表」。');
+      return;
+    }
+
     setOpenSheetLoading(true);
     try {
-      const sid = openSheetSidByWh[warehouse];
-      if (!sid) return;
+      const sid = await gasGetWarehouseId(warehouse);
+      setOpenSheetSidByWh((prev) => {
+        if (prev[warehouse] === sid) return prev;
+        return { ...prev, [warehouse]: sid };
+      });
       const url = `https://docs.google.com/spreadsheets/d/${sid}/edit`;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      const w = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!w) window.alert('瀏覽器可能阻擋彈出視窗。請允許後再點一次「開啟試算表」。');
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1877,6 +1904,39 @@ export default function DashboardPage() {
       }
     })();
   }, [isAdmin, useGas, openSheetWarehouse]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OPEN_SHEET_SID_CACHE_KEY, JSON.stringify(openSheetSidByWh || {}));
+    } catch {
+      // ignore
+    }
+  }, [openSheetSidByWh]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!useGas) return;
+    let alive = true;
+
+    void (async () => {
+      for (const wh of mockWarehouses) {
+        if (!alive) return;
+        if (openSheetSidByWh[wh]) continue;
+        try {
+          const sid = await gasGetWarehouseId(wh);
+          if (!alive) return;
+          setOpenSheetSidByWh((prev) => (prev[wh] === sid ? prev : { ...prev, [wh]: sid }));
+        } catch {
+          // ignore
+        }
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [isAdmin, useGas]);
 
   async function findWarehouseByNameAndMaybeSwitch() {
     if (!isAdmin) return;
@@ -1929,9 +1989,9 @@ export default function DashboardPage() {
               <button
                 className="btnGhost"
                 onClick={() => void openWarehouseSheet(query.warehouse)}
-                disabled={openSheetLoading || !openSheetSidByWh[query.warehouse]}
+                disabled={openSheetLoading}
               >
-                {openSheetLoading ? '開啟中…' : (openSheetSidByWh[query.warehouse] ? '開啟本倉試算表' : '準備中…')}
+                {openSheetLoading ? '開啟中…' : '開啟本倉試算表'}
               </button>
               <select
                 className="btnGhost"
@@ -1946,9 +2006,9 @@ export default function DashboardPage() {
               <button
                 className="btnGhost"
                 onClick={() => void openWarehouseSheet(openSheetWarehouse)}
-                disabled={openSheetLoading || !openSheetSidByWh[openSheetWarehouse]}
+                disabled={openSheetLoading}
               >
-                {openSheetLoading ? '開啟中…' : (openSheetSidByWh[openSheetWarehouse] ? '開啟所選倉別' : '準備中…')}
+                {openSheetLoading ? '開啟中…' : '開啟所選倉別'}
               </button>
             </>
           ) : null}
