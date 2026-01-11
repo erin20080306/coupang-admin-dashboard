@@ -826,6 +826,37 @@ function guessISOFromText(s: string): string {
   return '';
 }
 
+function isoToday(): string {
+  const d = new Date();
+  const y = String(d.getFullYear());
+  const m = (`0${d.getMonth() + 1}`).slice(-2);
+  const day = (`0${d.getDate()}`).slice(-2);
+  return `${y}-${m}-${day}`;
+}
+
+function clampEndIso(endIso: string): string {
+  const t = isoToday();
+  if (!endIso) return t;
+  return endIso < t ? endIso : t;
+}
+
+function filterDateColsUpToEnd(
+  dateCols: number[],
+  headers: string[],
+  headersISO: string[],
+  endIso: string
+): number[] {
+  const effectiveEnd = clampEndIso(endIso);
+  const out: number[] = [];
+  for (const ci of dateCols) {
+    let iso = headersISO[ci];
+    if (!iso) iso = guessISOFromText(headers[ci] || '');
+    if (!iso) continue;
+    if (iso <= effectiveEnd) out.push(ci);
+  }
+  return out;
+}
+
 function fmtMDFromISO(iso: string): string {
   const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return String(iso || '');
@@ -1158,6 +1189,9 @@ export default function DashboardPage() {
           .filter((i) => i >= 0);
       }
 
+      // 排除未到日期，避免出勤率分母偏大
+      effectiveDateCols = filterDateColsUpToEnd(effectiveDateCols, headers, headersISO, effectiveAttEndIso);
+
       if (!gasRows.length || !effectiveDateCols.length) {
         setAttWorstSourcePage(source);
         setAttAll([]);
@@ -1391,7 +1425,12 @@ export default function DashboardPage() {
           return Array.isArray(a) && a.length > 0;
         });
 
-        const shouldComputeAttendance = !isHoursPage && dateCols.length && query.page.includes('班表');
+        const chosenEndIso = clampEndIso(
+          attEndDate && attEndDate.match(/^\d{4}-\d{2}-\d{2}$/) ? attEndDate : ''
+        );
+        const dateColsForAttendance = filterDateColsUpToEnd(dateCols, headers, headersISO, chosenEndIso);
+
+        const shouldComputeAttendance = !isHoursPage && dateColsForAttendance.length && query.page.includes('班表');
 
         if (!filteredRows.length) {
           setStatus('empty');
@@ -1412,7 +1451,7 @@ export default function DashboardPage() {
         setManualFrozenLeft(0);
         setFreezeStart(0);
         setFreezeEnd(0);
-        setAttEndDate('');
+        // 保留使用者的截止日期設定（預設由 effectiveAttEndIso 決定）
         setAttSingleDate('');
         setAttName('');
         setAttSingleBuilt([]);
@@ -1435,7 +1474,7 @@ export default function DashboardPage() {
                 const rawRow = outRows[i] as any;
                 const nmRaw = getRawNameFromRow(rawRow);
                 if (nmRaw) {
-                  const a = calcRowAttendance(rawRow, dateCols, headers, headersISO, null, nmRaw);
+                  const a = calcRowAttendance(rawRow, dateColsForAttendance, headers, headersISO, null, nmRaw);
                   rawRow._attendance = a;
                   rawRow._attendanceRate = a.rate;
 
@@ -1479,7 +1518,7 @@ export default function DashboardPage() {
         }
 
         // 背景補齊：若是班表，抓出勤記錄 presentSet 後再重算一次（維持正確性）
-        if (!isHoursPage && dateCols.length && query.page.includes('班表') && !hasAnyAttArray) {
+        if (!isHoursPage && dateColsForAttendance.length && query.page.includes('班表') && !hasAnyAttArray) {
           void (async () => {
             try {
               const presentSetForPage = await getPresentSetCached(query.warehouse, availablePages, apiName);
@@ -1490,7 +1529,7 @@ export default function DashboardPage() {
                 const rawRow = row as any;
                 const nm = getRawNameFromRow(rawRow);
                 if (!nm) return rawRow;
-                const a = calcRowAttendance(rawRow, dateCols, headers, headersISO, presentSetForPage, nm);
+                const a = calcRowAttendance(rawRow, dateColsForAttendance, headers, headersISO, presentSetForPage, nm);
                 return { ...rawRow, _attendance: a, _attendanceRate: a.rate };
               });
 
@@ -1596,13 +1635,19 @@ export default function DashboardPage() {
     return out;
   }, [gasDateCols, gasHeadersISO, gasHeaders]);
 
+  const effectiveAttEndIso = useMemo(() => {
+    let chosenIso = '';
+    if (attEndDate) {
+      const hit = dateList.find((d) => (d.iso || `idx_${d.ci}`) === attEndDate);
+      chosenIso = hit?.iso || (attEndDate.match(/^\d{4}-\d{2}-\d{2}$/) ? attEndDate : '');
+    }
+    return clampEndIso(chosenIso);
+  }, [attEndDate, dateList]);
+
   const dateIndicesUpToEnd = useMemo(() => {
-    if (!dateList.length) return gasDateCols.slice();
-    if (!attEndDate) return dateList.map((d) => d.ci);
-    const idx = dateList.findIndex((d) => (d.iso || `idx_${d.ci}`) === attEndDate);
-    if (idx < 0) return dateList.map((d) => d.ci);
-    return dateList.slice(0, idx + 1).map((d) => d.ci);
-  }, [dateList, attEndDate, gasDateCols]);
+    if (!Array.isArray(gasDateCols) || !gasDateCols.length) return [];
+    return filterDateColsUpToEnd(gasDateCols, gasHeaders, gasHeadersISO, effectiveAttEndIso);
+  }, [gasDateCols, gasHeaders, gasHeadersISO, effectiveAttEndIso]);
 
   const dateIndexForSingle = useMemo(() => {
     if (!attSingleDate) return null;
@@ -2463,7 +2508,7 @@ export default function DashboardPage() {
               <label className="filter" style={{ minWidth: 220 }}>
                 <span>統計至</span>
                 <select value={attEndDate} onChange={(e) => setAttEndDate(e.target.value)}>
-                  <option value="">全部日期</option>
+                  <option value="">至今日</option>
                   {dateList.map((d) => (
                     <option key={d.iso || `idx_${d.ci}`} value={d.iso || `idx_${d.ci}`}>{d.label}</option>
                   ))}
