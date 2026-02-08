@@ -781,7 +781,7 @@ function findShiftKey(headers: string[]): string | null {
 }
 
 function guessISOFromText(s: string): string {
-  const t = String(s || '').trim();
+  const t = String(s || '').trim().replace(/\s+/g, '');
   if (!t) return '';
   // 允許帶時間：2025-12-01 08:00:00
   let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -808,11 +808,20 @@ function guessISOFromText(s: string): string {
     const d = (`0${m[2]}`).slice(-2);
     return `${y}-${mo}-${d}`;
   }
-  m = t.match(/^(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日$/);
+  // X月X日 格式（允許有無空格）
+  m = t.match(/^(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日?$/);
   if (m) {
     const y = m[1] || String(new Date().getFullYear());
     const mo = (`0${m[2]}`).slice(-2);
     const d = (`0${m[3]}`).slice(-2);
+    return `${y}-${mo}-${d}`;
+  }
+  // 純數字 X月X 格式（如 2月1）
+  m = t.match(/^(\d{1,2})月(\d{1,2})$/);
+  if (m) {
+    const y = String(new Date().getFullYear());
+    const mo = (`0${m[1]}`).slice(-2);
+    const d = (`0${m[2]}`).slice(-2);
     return `${y}-${mo}-${d}`;
   }
   return '';
