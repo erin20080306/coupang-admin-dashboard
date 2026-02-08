@@ -685,18 +685,18 @@ function calcRowAttendance(
     if (!iso) {
       iso = guessISOFromText(headers[ci] || '');
     }
-    if (!iso) continue;
+    // 注意：即使 iso 為空，只要該欄在 dateCols 中，仍應計入應到判斷
+    // ISO 只用於 presentSet 比對
 
     const hk = headers[ci];
-    if (!hk) continue;
     const rawArr = (row as any)._v as unknown[] | undefined;
-    const cellValue = Array.isArray(rawArr) && ci >= 0 && ci < rawArr.length ? rawArr[ci] : (row as any)[hk];
+    const cellValue = Array.isArray(rawArr) && ci >= 0 && ci < rawArr.length ? rawArr[ci] : (hk ? (row as any)[hk] : '');
     const cellStr = String(cellValue ?? '').trim();
     const parsed = parseCellForRules(cellValue);
 
     if (!parsed.excludeDen) {
       denom += 1;
-      const key = `${name}|${iso}`;
+      const key = iso ? `${name}|${iso}` : '';
 
       // 判斷是否缺勤：
       // 1. 命中 excludeAbs → 不缺勤
@@ -707,7 +707,7 @@ function calcRowAttendance(
       let isAbsent = true;
       if (parsed.excludeAbs) {
         isAbsent = false;
-      } else if (hasPresentSet && presentSet!.has(key)) {
+      } else if (hasPresentSet && key && presentSet!.has(key)) {
         isAbsent = false;
       } else if (!hasPresentSet && hasAttArr && attArr![ci]) {
         isAbsent = false;
