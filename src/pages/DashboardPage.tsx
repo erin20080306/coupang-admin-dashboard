@@ -819,7 +819,7 @@ function guessISOFromText(s: string): string {
     const d = (`0${m[2]}`).slice(-2);
     return `${y}-${mo}-${d}`;
   }
-  // X月X日 格式（允許有無空格）
+  // X月X日 格式（允許有無空格，日字可選）
   m = t.match(/^(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日?$/);
   if (m) {
     const y = m[1] || String(new Date().getFullYear());
@@ -834,6 +834,18 @@ function guessISOFromText(s: string): string {
     const mo = (`0${m[1]}`).slice(-2);
     const d = (`0${m[2]}`).slice(-2);
     return `${y}-${mo}-${d}`;
+  }
+  // 純數字 1~31（假設是當月的日期）
+  m = t.match(/^(\d{1,2})$/);
+  if (m) {
+    const day = parseInt(m[1], 10);
+    if (day >= 1 && day <= 31) {
+      const now = new Date();
+      const y = String(now.getFullYear());
+      const mo = (`0${now.getMonth() + 1}`).slice(-2);
+      const d = (`0${day}`).slice(-2);
+      return `${y}-${mo}-${d}`;
+    }
   }
   return '';
 }

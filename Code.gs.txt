@@ -643,6 +643,7 @@ function getGridPayloadForName_(sheetName, spreadsheetId, nameFilter) {
 function readSheetToPayload_(sh, lastRow, lastCol) {
   var rng = sh.getRange(1, 1, lastRow, lastCol);
   var values = rng.getDisplayValues();
+  var valuesRaw = rng.getValues(); // 取得實際值（Date 物件等）
   var bgs = rng.getBackgrounds();
   var fcs = rng.getFontColors();
 
@@ -660,7 +661,18 @@ function readSheetToPayload_(sh, lastRow, lastCol) {
   var headerRowIndex = detectHeaderRowIndex_(values);
 
   var headers = values[headerRowIndex] || [];
-  var headersISO = headers.map(guessISOFromHeaderText_);
+  // 用實際值來解析日期，確保能取得完整年份
+  var headersRaw = valuesRaw[headerRowIndex] || [];
+  var headersISO = headersRaw.map(function(cell) {
+    // 如果是 Date 物件，直接轉換
+    if (cell instanceof Date && !isNaN(cell.getTime())) {
+      var y = cell.getFullYear();
+      var m = ('0' + (cell.getMonth() + 1)).slice(-2);
+      var d = ('0' + cell.getDate()).slice(-2);
+      return y + '-' + m + '-' + d;
+    }
+    return guessISOFromHeaderText_(cell);
+  });
 
   var dateCols = [];
   for (var i = 0; i < headersISO.length; i++) {
