@@ -679,33 +679,34 @@ function calcRowAttendance(
   const hasAttArr = Array.isArray(attArr) && attArr.length > 0;
 
   for (const ci of dateCols) {
+    const hk = headers[ci];
+    if (!hk) continue;
+
     // 先嘗試用 headersISO，若為空則用 header 名稱推斷
     let iso = headersISO[ci];
     if (!iso) {
       iso = guessISOFromText(headers[ci] || '');
     }
-    if (!iso) continue;
+    // 注意：即使 iso 為空，只要該欄在 dateCols 中且有表頭，仍應計入應到
+    // ISO 只用於 presentSet 比對
 
-    const hk = headers[ci];
-    if (!hk) continue;
     const cellValue = (row as any)[hk];
     const cellStr = String(cellValue ?? '').trim();
     const parsed = parseCellForRules(cellValue);
 
     if (!parsed.excludeDen) {
       denom += 1;
-      const key = `${name}|${iso}`;
 
       // 判斷是否缺勤：
       // 1. 命中 excludeAbs → 不缺勤
-      // 2. presentSet 有資料且包含 key → 不缺勤
+      // 2. presentSet 有資料且有 iso 且包含 key → 不缺勤
       // 3. presentSet 為空但 _att 有資料且 att[ci]=1 → 不缺勤
       // 4. 以上都不滿足但格子有內容 → 不缺勤（最終 fallback）
       // 5. 以上都不滿足 → 缺勤
       let isAbsent = true;
       if (parsed.excludeAbs) {
         isAbsent = false;
-      } else if (hasPresentSet && presentSet!.has(key)) {
+      } else if (hasPresentSet && iso && presentSet!.has(`${name}|${iso}`)) {
         isAbsent = false;
       } else if (!hasPresentSet && hasAttArr && attArr![ci]) {
         isAbsent = false;
@@ -852,8 +853,8 @@ function filterDateColsUpToEnd(
   for (const ci of dateCols) {
     let iso = headersISO[ci];
     if (!iso) iso = guessISOFromText(headers[ci] || '');
-    if (!iso) continue;
-    if (iso <= effectiveEnd) out.push(ci);
+    // 如果無法解析 ISO，保守起見仍保留該日期欄（無法判斷是否超過截止日）
+    if (!iso || iso <= effectiveEnd) out.push(ci);
   }
   return out;
 }

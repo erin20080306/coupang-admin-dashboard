@@ -1,0 +1,3471 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>宏盛酷澎表 - 登入</title>
+
+  <!-- jQuery + DataTables -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdn.datatables.net/2.3.4/css/dataTables.dataTables.min.css">
+  <script src="https://cdn.datatables.net/2.3.4/js/dataTables.min.js"></script>
+
+  <!-- FixedColumns（凍結窗格） -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/fixedcolumns/5.0.0/css/fixedColumns.dataTables.min.css">
+  <script src="https://cdn.datatables.net/fixedcolumns/5.0.0/js/dataTables.fixedColumns.min.js"></script>
+
+  <!-- Buttons 匯出 -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/3.0.2/css/buttons.dataTables.min.css">
+  <script src="https://cdn.datatables.net/buttons/3.0.2/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/3.0.2/js/buttons.html5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- 下載 PNG 用（單人假別統計 / 出勤率統計） -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <style>
+    /* ===== 精美現代風格（保留原本底色） ===== */
+    :root {
+      --bg: #f4f2f0;
+      --bg-soft: #f0ebe6;
+      --bg-strong: #e4dfd7;
+      --primary: #5d7b93;
+      --primary-dark: #4a6378;
+      --primary-light: #8ca2b8;
+      --accent: #c9a982;
+      --accent-soft: #e8d9c5;
+      --accent-dark: #b8945e;
+      --border: #d4cec6;
+      --border-light: #e8e3dc;
+      --text-main: #2c3e50;
+      --text-muted: #7b8a8b;
+      --text-light: #95a5a6;
+      --table-header: #e9e5de;
+      --table-row-alt: #f8f6f2;
+      --sat: #e8f4f8;
+      --sun: #f8f0e8;
+      --success: #27ae60;
+      --info: #3498db;
+      --warning: #f39c12;
+      --danger: #e74c3c;
+    }
+
+    * { 
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text-main);
+      background: var(--bg);
+      line-height: 1.5;
+    }
+
+    /* ===== 登入頁 ===== */
+    .login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, rgba(93, 123, 147, 0.9), rgba(74, 99, 120, 0.9));
+      padding: 20px;
+    }
+
+    /*  登入卡片：保持正方形視覺，但避免固定高度裁切按鈕 */
+    .login-panel {
+      width: 520px;
+      min-height: 420px;   /*  改 min-height，避免內容被裁切 */
+      height: auto;        /*  讓內容可撐開，確保登入按鈕完整顯示 */
+      background: rgba(240, 240, 240, 0.95);
+      border-radius: 0px;
+      padding: 40px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25),
+                  0 8px 16px rgba(0, 0, 0, 0.15);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+
+      /*  新增：讓登入記憶浮動框可以用 absolute 定位在卡片內 */
+      position: relative;
+    }
+
+    .login-panel:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2),
+                  0 12px 24px rgba(0, 0, 0, 0.15);
+    }
+
+    .login-title {
+      font-size: 28px;
+      font-weight: 800;
+      margin: 0 0 22px; /*  原本 login-sub 在上方，移走後補回間距 */
+      color: #333333;
+      letter-spacing: -0.5px;
+      text-align: center;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /*  姓名/生日同一列區塊（手機自動變上下） */
+    .login-fields-row {
+      display: flex;
+      flex-direction: column; /*  永遠上下堆疊 */
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+
+    .login-fields-row .login-field {
+      flex: 1;
+      margin-bottom: 0; /*  避免每個欄位再多一段底部空間 */
+    }
+
+    .login-field {
+      margin-bottom: 20px;
+    }
+
+    .login-field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #444444;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .login-field input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid rgba(212, 206, 198, 0.8);
+      border-radius: 8px;
+      background: #ffffff;
+      font-size: 15px;
+      font-family: inherit;
+      transition: all 0.3s ease;
+      outline: none;
+      color: #333333;
+    }
+
+    .login-field input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(93, 123, 147, 0.1);
+    }
+
+    .login-field input::placeholder {
+      color: #999999;
+    }
+
+    /*  登入記憶：改為「點輸入框才出現」的浮動動態框（仍限本機 localStorage） */
+    .login-history {
+      position: absolute;
+      z-index: 50;
+      padding: 12px 12px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(212, 206, 198, 0.85);
+      box-shadow: 0 16px 36px rgba(0,0,0,0.14);
+      display: none; /* 預設不顯示：點輸入框才顯示 */
+      max-height: 240px;
+      overflow: auto;
+      backdrop-filter: blur(8px);
+    }
+    .login-history-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: #444;
+      margin-bottom: 8px;
+      letter-spacing: 0.2px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .login-history-title::before {
+      content: '';
+      font-size: 14px;
+      opacity: 0.9;
+      margin-right: 6px;
+    }
+    .login-history-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .login-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(212, 206, 198, 0.9);
+      background: #ffffff;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+      font-size: 12px;
+      color: #333;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      outline: none;
+    }
+    .login-chip:hover {
+      transform: translateY(-1px);
+      border-color: rgba(93, 123, 147, 0.6);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+    }
+    .login-chip .nm { font-weight: 800; }
+    .login-chip .bd { font-weight: 700; color: #666; }
+    .login-history-actions {
+      margin-top: 8px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .login-history-clear {
+      padding: 8px 12px;
+      font-size: 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(212, 206, 198, 0.9);
+      background: rgba(240, 240, 240, 0.7);
+      cursor: pointer;
+      font-weight: 700;
+      color: #444;
+      transition: all 0.2s ease;
+    }
+    .login-history-clear:hover {
+      background: rgba(240, 240, 240, 1);
+      transform: translateY(-1px);
+    }
+
+    .login-btn {
+      width: 100%;
+      margin-top: 18px;
+      padding: 15px 0;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: white;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      z-index: 2;
+    }
+
+    .login-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(93, 123, 147, 0.3);
+    }
+
+    .login-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .login-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .login-btn::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.5s ease;
+    }
+
+    .login-btn:hover::after {
+      left: 100%;
+    }
+
+    /*  指示文字移到登入按鈕下方，2列顯示 */
+    .login-tip {
+      font-size: 13px;
+      color: #666666;
+      margin-top: 12px;
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    /*  錯誤訊息：空白時不顯示（避免佔高度/遮擋按鈕） */
+    .login-error {
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: rgba(231, 76, 60, 0.1);
+      border: 1px solid rgba(231, 76, 60, 0.2);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--danger);
+      text-align: center;
+      animation: slideIn 0.3s ease;
+      max-height: 60px;
+      overflow: auto;
+    }
+    .login-error:empty {
+      display: none;      /*  沒訊息就不顯示也不佔位 */
+      margin-top: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ===== 主畫面 ===== */
+    .app-page {
+      display: none;
+      min-height: 100vh;
+      background: var(--bg);
+    }
+
+    .appbar {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .appbar::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
+      animation: shimmer 3s infinite linear;
+    }
+
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: white;
+    }
+
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-main {
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-sub {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.85);
+      margin-top: 2px;
+    }
+
+    .user-label {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .user-name-display {
+      font-weight: 700;
+      color: white;
+      margin: 0 4px;
+    }
+
+    /*  登出按鈕樣式 */
+    .logout-btn {
+      margin-left: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .logout-btn:hover {
+      background: rgba(255, 255, 255, 0.25);
+      transform: translateY(-2px);
+    }
+
+    .app-main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* KPI 列 */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kpi {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border-light);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .kpi:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .kpi::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+    }
+
+    .kpi:nth-child(1)::before { background: linear-gradient(90deg, var(--primary), var(--primary-light)); }
+    .kpi:nth-child(2)::before { background: linear-gradient(90deg, var(--info), #5dade2); }
+    .kpi:nth-child(3)::before { background: linear-gradient(90deg, var(--success), #58d68d); }
+    .kpi:nth-child(4)::before { background: linear-gradient(90deg, var(--warning), #f8c471); }
+    .kpi:nth-child(5)::before { background: linear-gradient(90deg, var(--accent), var(--accent-dark)); }
+
+    .kpi-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .kpi-label::before {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.6;
+    }
+
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 800;
+      margin: 4px 0;
+      color: var(--text-main);
+      line-height: 1;
+    }
+
+    .kpi-foot {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-light);
+      line-height: 1.4;
+    }
+
+    .kpi-note {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    /* 工具列 */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border-light);
+    }
+
+    .toolbar label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    select, button, input[type="text"] {
+      padding: 10px 14px;
+      border: 2px solid var(--border-light);
+      border-radius: 8px;
+      background: white;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    select:focus, button:focus, input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(93, 123, 147, 0.1);
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, var(--accent-soft), var(--accent));
+      border: none;
+      color: var(--text-main);
+      font-weight: 600;
+      cursor: pointer;
+      padding: 10px 20px;
+      min-width: 120px;
+    }
+
+    /*  開啟試算表：使用 a[target=_blank] 避免 popup blocker */
+    a.btn-secondary{
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    a.btn-secondary[aria-disabled="true"]{
+      pointer-events: none;
+      opacity: 0.65;
+    }
+
+    .btn-secondary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(201, 169, 130, 0.3);
+    }
+
+    /*  開啟各倉試算表：倉別按鈕（點一下直接開新分頁，不需等待讀取） */
+    .open-wh-btns{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .open-wh-btns .open-wh-btn{
+      min-width: 72px;   /* 覆寫 .btn-secondary 的 min-width:120 */
+      padding: 10px 14px;
+      line-height: 1.1;
+    }
+    .msg-inline {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .msg-inline-icon {
+      font-size: 18px;
+      animation: spin 2s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* 表格外框 */
+    .table-wrap {
+      border-radius: 12px;
+      background: white;
+      padding: 4px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border-light);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    table.dataTable thead th {
+      background: linear-gradient(180deg, var(--table-header), #e1dbd1);
+      border-bottom: 2px solid var(--border);
+      padding: 14px 12px !important;
+      font-weight: 700;
+      color: var(--text-main);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 13px;
+    }
+
+    table.dataTable tbody td {
+      padding: 12px !important;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    table.dataTable tbody tr {
+      transition: all 0.2s ease;
+    }
+
+    table.dataTable tbody tr:hover td {
+      background: rgba(93, 123, 147, 0.05) !important;
+      transform: scale(1.002);
+    }
+
+    table.dataTable tbody tr:nth-child(even) td {
+      background: var(--table-row-alt);
+    }
+
+    .col-sat {
+      background-color: var(--sat) !important;
+      position: relative;
+    }
+
+    .col-sat::after {
+      content: '六';
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      font-size: 10px;
+      color: var(--primary);
+      opacity: 0.6;
+    }
+
+    .col-sun {
+      background-color: var(--sun) !important;
+      position: relative;
+    }
+
+    .col-sun::after {
+      content: '日';
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      font-size: 10px;
+      color: var(--danger);
+      opacity: 0.6;
+    }
+
+    /* DataTables Buttons */
+    .dt-buttons .dt-button {
+      border-radius: 8px !important;
+      border: 2px solid var(--border-light) !important;
+      background: white !important;
+      color: var(--text-main) !important;
+      font-size: 13px !important;
+      padding: 8px 16px !important;
+      margin-left: 8px !important;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .dt-buttons .dt-button:hover {
+      background: var(--primary) !important;
+      color: white !important;
+      border-color: var(--primary) !important;
+      transform: translateY(-2px);
+    }
+
+    /* 分頁主表格 */
+    #tbl.dataTable {
+      font-size: 14px;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    #tbl.dataTable thead th,
+    #tbl.dataTable tbody td {
+      padding: 10px 12px !important;
+      line-height: 1.4;
+      border-right: 1px solid var(--border-light) !important;
+    }
+
+    #tbl.dataTable thead th:last-child,
+    #tbl.dataTable tbody td:last-child {
+      border-right: none !important;
+    }
+
+    #tbl_wrapper .dt-search input {
+      font-size: 14px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 2px solid var(--border-light);
+    }
+
+    #tbl_wrapper .dt-length select {
+      font-size: 14px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 2px solid var(--border-light);
+    }
+
+    /*  新增：主資料表縮小（只影響 #tbl，不動其它統計表） */
+    #tbl.dataTable { font-size: 12.5px; }
+    #tbl.dataTable thead th { padding: 9px 8px !important; font-size: 12px !important; }
+    #tbl.dataTable tbody td { padding: 7px 8px !important; line-height: 1.25; }
+    #tbl_wrapper .dt-search input { font-size: 13px; padding: 8px 10px; }
+    #tbl_wrapper .dt-length select { font-size: 13px; padding: 6px 10px; }
+
+    /* 統計區塊 */
+    .stats-block {
+      margin-top: 24px;
+      padding: 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border-light);
+    }
+
+    .stats-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid var(--border-light);
+    }
+
+    .stats-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--primary-dark);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .stats-title::before {
+      content: '';
+      width: 4px;
+      height: 20px;
+      background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+      border-radius: 2px;
+    }
+
+    .stats-note {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 600px;
+    }
+
+    .stats-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: var(--bg-soft);
+      border-radius: 8px;
+    }
+
+    .stats-inline-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-left: auto;
+    }
+
+    /* PNG 匯出時只保留表格區塊 */
+    .export-only-table .dt-search,
+    .export-only-table .dt-buttons,
+    .export-only-table .dt-length,
+    .export-only-table .dt-info,
+    .export-only-table .dt-paging {
+      display: none !important;
+    }
+
+    /*  分頁人數與離職人數樣式 */
+    .page-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .page-stats-total {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .page-stats-leave {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--danger);
+    }
+
+    /* RWD */
+    @media (max-width: 1200px) {
+      .kpi-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 900px) {
+      .kpi-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      
+      .app-main {
+        padding: 16px;
+      }
+      
+      .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+      }
+      
+      .login-panel {
+        width: 92px;
+        min-height: 560px;
+        padding: 30px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .kpi-row {
+        grid-template-columns: 1fr;
+      }
+
+      .appbar {
+        flex-direction: column;
+        gap: 16px;
+        padding: 20px 16px;
+        text-align: center;
+      }
+      
+      .brand {
+        flex-direction: column;
+        text-align: center;
+      }
+      
+      .login-panel {
+        width: 92px;
+        min-height: 560px;
+        padding: 25px;
+      }
+      
+      .login-title {
+        font-size: 24px;
+      }
+
+      /*  手機時改成上下堆疊 */
+      .login-fields-row {
+        flex-direction: column;
+        gap: 16px;
+        margin-bottom: 6px;
+      }
+    }
+
+    /* 手機橫向滑動 */
+    .table-wrap{
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x pan-y;
+    }
+
+    #tbl_wrapper .dt-scroll-body{
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x pan-y;
+    }
+
+    /*  修正：移除 !important，避免欄位篩選後表頭/欄位寬度計算失去同步 */
+    #tbl_wrapper .dt-scroll-head table,
+    #tbl_wrapper .dt-scroll-body table{
+      width: max-content;
+    }
+
+    /*  修正：移除 !important，讓 DataTables 可以在欄位隱藏/顯示後重新計算寬度 */
+    #tbl_wrapper .dt-scroll-headInner{
+      width: max-content;
+    }
+
+    @media (max-width: 768px){
+      #tbl.dataTable thead th,
+      #tbl.dataTable tbody td{
+        min-width: 100px;
+        white-space: nowrap;
+      }
+
+      #tbl.dataTable thead th:first-child,
+      #tbl.dataTable tbody td:first-child{
+        min-width: 80px;
+      }
+    }
+
+    /* KPI 載入動畫 */
+    .kpi-loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid var(--border-light);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-left: 8px;
+    }
+
+    /* 倉別人數明細彈窗 */
+    .warehouse-details {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .warehouse-details span {
+      display: inline-block;
+      margin-right: 8px;
+      margin-bottom: 4px;
+      padding: 2px 8px;
+      background: var(--bg-soft);
+      border-radius: 4px;
+      border-left: 3px solid var(--primary);
+    }
+
+    /*  保險：KPI 第3格（資料筆數那格）整體縮小 */
+    .kpi-row .kpi:nth-child(3) .kpi-value{
+      font-size: 18px !important;
+      line-height: 1.2 !important;
+      white-space: normal !important;
+      word-break: break-word !important;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== 登入頁 ===== -->
+<div class="login-page" id="loginPage">
+  <div class="login-panel">
+    <div class="login-title">宏盛酷澎登入系統</div>
+
+    <!--  姓名/生日同一列區塊 -->
+    <div class="login-fields-row">
+      <div class="login-field">
+        <label for="loginName">姓名</label>
+        <input id="loginName" type="text" placeholder="請輸入完整姓名" autocomplete="off">
+      </div>
+
+      <div class="login-field">
+        <label for="loginBirthday">生日</label>
+        <input id="loginBirthday" type="text" placeholder="例如：810101 或 19810101" autocomplete="off">
+      </div>
+    </div>
+
+    <!--  登入記憶：浮動動態框（點任一輸入框才出現） -->
+    <div class="login-history" id="loginHistoryWrap" aria-hidden="true">
+      <div class="login-history-title">
+        <span>最近使用（點一下帶入）</span>
+        <button type="button" class="login-history-clear" id="clearLoginHistory">清除記錄</button>
+      </div>
+      <div class="login-history-list" id="loginHistoryList"></div>
+    </div>
+
+    <button type="button" class="login-btn" id="loginBtn">
+      <span>登入系統</span>
+    </button>
+
+    <!--  文字移到登入按鈕下方，2列顯示 -->
+    <div class="login-tip">請輸入姓名與生日登入系統，<br>系統僅會顯示您的出勤資料。</div>
+
+    <!--  空白時不顯示（CSS :empty 控制） -->
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ===== 主畫面 ===== -->
+<div class="app-page" id="appPage">
+  <header class="appbar">
+    <div class="brand">
+      <div class="brand-icon"></div>
+      <div class="brand-text">
+        <div class="brand-main">宏盛酷澎查詢系統表</div>
+        <div class="brand-sub" id="warehouseSub">TAO1 出勤查詢</div>
+      </div>
+    </div>
+    <div class="user-label">
+      <span> 已登入：</span>
+      <span class="user-name-display" id="userDisplayName">—</span>
+      <button type="button" class="logout-btn" id="logoutBtn">登出系統</button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- 上方 KPI -->
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-label">查詢姓名</div>
+        <div class="kpi-value" id="kpiName">—</div>
+        <div class="kpi-foot">登入後自動帶入</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">目前分頁</div>
+        <div class="kpi-value" id="kpiSheet">—</div>
+        <div class="kpi-foot">一般帳號顯示分頁名稱；管理者顯示人數/筆數</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">資料筆數</div>
+        <div class="kpi-value" id="kpiCount">—</div>
+        <div class="kpi-foot">一般帳號為資料列數；管理者優先顯示部門數</div>
+      </div>
+      <!--  修改：倉別總人數改為該分頁人數與離職人數 -->
+      <div class="kpi">
+        <div class="kpi-label">分頁人數 / 離職人數</div>
+        <div class="page-stats" id="pageStats">
+          <div class="page-stats-total" id="pageTotal">—</div>
+          <div class="page-stats-leave" id="pageLeave">—</div>
+        </div>
+        <div class="kpi-foot">該分頁總人數（離職人數）</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">系統說明</div>
+        <div class="kpi-note">
+          本系統僅顯示登入權限可見的資料：一般帳號只看自己，管理者可查看全部資料。
+        </div>
+      </div>
+    </div>
+
+    <!-- 工具列 -->
+    <div class="toolbar">
+      <label id="warehouseBlock" style="display:none;">
+        倉別：
+        <select id="warehouseSelect">
+          <? for (var i = 0; i < whKeys.length; i++) { var wk = whKeys[i]; ?>
+            <option value="<?= wk ?>" <?= wk === whKey ? 'selected' : '' ?>><?= wk ?></option>
+          <? } ?>
+        </select>
+      </label>
+
+      <label id="findWarehouseBlock" style="display:none;">
+        姓名辨識倉別：
+        <input id="findWarehouseName" type="text" placeholder="輸入姓名" autocomplete="off">
+        <button type="button" class="btn-secondary" id="findWarehouseBtn">辨識並切換</button>
+      </label>
+
+      <label id="openSheetBlock" style="display:none;">
+        開啟各倉試算表：
+        <span class="open-wh-btns" id="openWhBtns">
+          <? for (var i = 0; i < whKeys.length; i++) { var wk = whKeys[i]; var sid = (whIds && whIds[wk]) ? whIds[wk] : ''; ?>
+            <a class="btn-secondary open-wh-btn" href="https://docs.google.com/spreadsheets/d/<?= sid ?>/edit" target="_blank" rel="noopener noreferrer"><?= wk ?></a>
+          <? } ?>
+        </span>
+      </label>
+
+
+      <label>
+        分頁：
+        <select id="sheetSelect">
+          <? for (var i = 0; i < sheetNames.length; i++) { var nm = sheetNames[i]; ?>
+            <option value="<?= nm ?>" <?= nm === sheetName ? 'selected' : '' ?>><?= nm ?></option>
+          <? } ?>
+        </select>
+      </label>
+
+      <button type="button" class="btn-secondary" id="reloadBtn">
+         重新載入
+      </button>
+
+      <label>
+        凍結欄位：
+        <select id="freezeStart"></select>
+        ～
+        <select id="freezeEnd"></select>
+      </label>
+      <button type="button" class="btn-secondary" id="applyFreeze">套用凍結</button>
+      <button type="button" id="resetFreeze">取消凍結</button>
+
+      <span class="msg-inline" id="loadingMsg"></span>
+    </div>
+
+    <!-- 資料表 -->
+    <div class="table-wrap">
+      <table id="tbl" class="display nowrap" style="width:100%"></table>
+    </div>
+
+    <!-- 單人假別欄位篩選 -->
+    <section class="stats-block" id="leaveFilterBlock">
+      <div class="stats-header">
+        <div class="stats-title">單人假別欄位篩選</div>
+        <div class="stats-note">從目前分頁中此姓名的資料，依假別顯示對應的日期欄位。</div>
+      </div>
+      <div class="stats-toolbar">
+        <label>
+          假別：
+          <select id="leaveFilterSelect">
+            <option value="">全部日期</option>
+          </select>
+        </label>
+        <button type="button" class="btn-secondary" id="clearLeaveFilter">清除假別篩選</button>
+      </div>
+    </section>
+
+    <!-- 管理者姓名選擇 -->
+    <section class="stats-block" id="adminNameBlock" style="display:none;">
+      <div class="stats-header">
+        <div class="stats-title">管理者姓名選擇</div>
+        <div class="stats-note">
+          僅管理者登入時有效，請輸入要統計的姓名，套用於下方「單人假別統計」與「單人出勤率統計」。
+        </div>
+      </div>
+      <div class="stats-toolbar">
+        <label>
+          姓名：
+          <input type="text" id="statNameInput" placeholder="請輸入要統計的姓名">
+        </label>
+        <button type="button" class="btn-secondary" id="clearStatNameBtn">清除姓名</button>
+      </div>
+    </section>
+
+    <!-- 單人假別統計 -->
+    <section class="stats-block" id="singleStatBlock">
+      <div class="stats-header">
+        <div class="stats-title">單人假別統計</div>
+        <div class="stats-note">
+          一般帳號：使用登入姓名統計
+        </div>
+      </div>
+      <div class="stats-toolbar">
+        <button type="button" class="btn-secondary" id="buildSingleStat">產生假別統計</button>
+        <button type="button" id="clearSingleStat">清除</button>
+        <span class="stats-inline-title">標題：<span id="singleStatTitle">—</span></span>
+      </div>
+      <div class="table-wrap" id="singleStatWrap">
+        <div class="stats-inline-title" id="singleStatCaption">—</div>
+        <table id="singleStatTbl" class="display nowrap" style="width:100%"></table>
+      </div>
+    </section>
+
+    <!-- 單人出勤率統計 -->
+    <section class="stats-block" id="attStatBlock">
+      <div class="stats-header">
+        <div class="stats-title">單人出勤率統計</div>
+        <div class="stats-note">
+          一般帳號：使用登入姓名統計。管理者：依「管理者姓名選擇」區塊的姓名統計。<br>
+          應到天數：排除 休 / 休假 / 休假日 / 例 / 例假 / 例休 / 例假日 / 調任 / 調倉 / 離 / 未 / 轉正 / 轉證 / 颱風 / 公假，其餘（含空白）視為應到。
+        </div>
+      </div>
+      <div class="stats-toolbar">
+        <label>
+          統計結束日：
+          <select id="attEndDateSelect">
+            <option value="">全部日期</option>
+          </select>
+        </label>
+        <label>
+          單日統計：
+          <select id="attSingleDateSelect">
+            <option value="">不指定</option>
+          </select>
+        </label>
+        <button type="button" class="btn-secondary" id="buildAttStat">產生出勤率統計</button>
+        <button type="button" id="clearAttStat">清除</button>
+        <span class="stats-inline-title">標題：<span id="attStatTitle">—</span></span>
+      </div>
+      <div class="table-wrap" id="attStatWrap">
+        <table id="attStatTbl" class="display nowrap" style="width:100%"></table>
+      </div>
+    </section>
+
+    <!-- 管理者：全員各自出勤率統計 -->
+    <section class="stats-block" id="allAttStatBlock" style="display:none;">
+      <div class="stats-header">
+        <div class="stats-title">全員出勤率統計（管理者）</div>
+        <div class="stats-note">
+          依目前班表分頁計算每位員工的應到/實到/出勤率；統計範圍同上方「統計結束日」。
+        </div>
+      </div>
+      <div class="stats-toolbar">
+        <button type="button" class="btn-secondary" id="buildAllAttStat">產生全員出勤率統計</button>
+        <button type="button" id="clearAllAttStat">清除</button>
+        <span class="stats-inline-title">標題：<span id="allAttStatTitle">—</span></span>
+      </div>
+      <div class="table-wrap" id="allAttStatWrap">
+        <table id="allAttStatTbl" class="display nowrap" style="width:100%"></table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  (function () {
+    const SHEET_INIT  = <?= JSON.stringify(sheetName || '') ?>;
+    const SHEET_NAMES = <?= JSON.stringify(sheetNames || []) ?>;
+    const BASE_URL    = '<?= ScriptApp.getService().getUrl() ?>';
+    const WH_KEY_INIT = <?= JSON.stringify(whKey || '') ?>;
+    const WH_KEYS     = <?= JSON.stringify(whKeys || []) ?>;
+    const WH_IDS      = <?= JSON.stringify(whIds || {}) ?>;
+
+    const loginPage   = document.getElementById('loginPage');
+    const appPage     = document.getElementById('appPage');
+
+    const loginNameInput     = document.getElementById('loginName');
+    const loginBirthdayInput = document.getElementById('loginBirthday');
+    const loginBtn           = document.getElementById('loginBtn');
+    const loginError         = document.getElementById('loginError');
+
+    //  登入記憶 UI（動態浮動框）
+    const loginHistoryWrap = document.getElementById('loginHistoryWrap');
+    const loginHistoryList = document.getElementById('loginHistoryList');
+    const clearLoginHistoryBtn = document.getElementById('clearLoginHistory');
+
+    const userDisplayName = document.getElementById('userDisplayName');
+    const kpiName   = document.getElementById('kpiName');
+    const kpiSheet  = document.getElementById('kpiSheet');
+    const kpiCount  = document.getElementById('kpiCount');
+    const pageTotal = document.getElementById('pageTotal');
+    const pageLeave = document.getElementById('pageLeave');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const warehouseSub = document.getElementById('warehouseSub');
+
+    const sheetSelect = document.getElementById('sheetSelect');
+    const reloadBtn   = document.getElementById('reloadBtn');
+    const loadingMsg  = document.getElementById('loadingMsg');
+
+    const freezeStart     = document.getElementById('freezeStart');
+    const freezeEnd       = document.getElementById('freezeEnd');
+    const applyFreezeBtn  = document.getElementById('applyFreeze');
+    const resetFreezeBtn  = document.getElementById('resetFreeze');
+
+    const leaveFilterBlock   = document.getElementById('leaveFilterBlock');
+    const leaveFilterSelect   = document.getElementById('leaveFilterSelect');
+    const clearLeaveFilterBtn = document.getElementById('clearLeaveFilter');
+
+    const adminNameBlock   = document.getElementById('adminNameBlock');
+    const statNameInput    = document.getElementById('statNameInput');
+    const clearStatNameBtn = document.getElementById('clearStatNameBtn');
+
+    const singleStatBlock   = document.getElementById('singleStatBlock');
+    const singleStatTitle   = document.getElementById('singleStatTitle');
+    const singleStatWrap    = document.getElementById('singleStatWrap');
+    const singleStatCaption = document.getElementById('singleStatCaption');
+
+    const attStatBlock        = document.getElementById('attStatBlock');
+    const attEndDateSelect    = document.getElementById('attEndDateSelect');
+    const attSingleDateSelect = document.getElementById('attSingleDateSelect');
+    const attStatTitle        = document.getElementById('attStatTitle');
+    const attStatWrap         = document.getElementById('attStatWrap');
+    const buildAttStatBtn     = document.getElementById('buildAttStat');
+    const clearAttStatBtn     = document.getElementById('clearAttStat');
+
+    const allAttStatBlock     = document.getElementById('allAttStatBlock');
+    const allAttStatTitle     = document.getElementById('allAttStatTitle');
+    const allAttStatWrap      = document.getElementById('allAttStatWrap');
+    const buildAllAttStatBtn  = document.getElementById('buildAllAttStat');
+    const clearAllAttStatBtn  = document.getElementById('clearAllAttStat');
+
+    const warehouseBlock  = document.getElementById('warehouseBlock');
+    const warehouseSelect = document.getElementById('warehouseSelect');
+
+    const findWarehouseBlock = document.getElementById('findWarehouseBlock');
+    const findWarehouseName  = document.getElementById('findWarehouseName');
+    const findWarehouseBtn   = document.getElementById('findWarehouseBtn');
+
+    //  管理者：開啟各倉 Google Sheet 試算表（新頁面）
+    const openSheetBlock      = document.getElementById('openSheetBlock');
+    const openWarehouseSelect = document.getElementById('openWarehouseSelect');
+    const openSheetBtn        = document.getElementById('openSheetBtn');
+
+    let loginName   = '';
+    let isAdmin     = false;
+    let statName    = '';
+    let currentSheet = SHEET_INIT;
+    let currentWarehouse = WH_KEY_INIT || '';
+    let table       = null;
+
+    let LAST = { headers: [], headersISO: [], rows: [], dateCols: [] };
+    let lastPayload = null;
+    let currentFrozenLeft = 0;
+    let savedVisibilityForLeaveFilter = null;
+    let singleStatDT = null;
+    let attStatDT = null;
+    let allAttStatDT = null;
+    let ATT_DATE_LIST = [];
+
+    //  新增：假別篩選模式（班表矩陣欄位 / 出勤記錄列式）
+    let LEAVE_FILTER_MODE = 'matrix'; // 'matrix' | 'record'
+    //  新增：出勤記錄（列式）用搜尋狀態備份
+    let savedSearchForLeaveFilter = null;
+
+    const EXCLUDE_SET = new Set([
+      '未','國',
+      '例','例假日','例休',
+      '休','休假','休假日',
+      '調倉','調任','離',
+      '轉正'
+    ]);
+
+    const EXCLUDE_FROM_DENOM = new Set([
+      '休','例','例休','例假','例假日',
+      '休假','休假日',
+      '離','未',
+      '國','國定','國出',
+      '調倉','調任','調假',
+      '休加','公假','颱風',
+      '轉正'
+    ]);
+
+    const EXCLUDE_FROM_ABS   = new Set(['調倉','調任']);
+    const ALNUM_RE = /^[A-Za-z0-9]+$/;
+    const HAS_CJK_RE = /[\u4E00-\u9FFF]/;
+
+    const EXCLUDE_FOR_ATT_RATE = new Set([
+      '休','休假','休假日',
+      '例','例假','例休','例假日',
+      '調任','調倉',
+      '離','未',
+      '轉正',
+      '颱風','公假'
+    ]);
+
+    //  登入記憶（本機 localStorage），不自動填入；僅保留 10 日內
+    const LOGIN_HISTORY_KEY = 'hs_login_history_v1';
+    const LOGIN_HISTORY_MAX = 6;
+    const LOGIN_HISTORY_TTL_DAYS = 10;
+    const LOGIN_HISTORY_TTL_MS = LOGIN_HISTORY_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+    let loginSuggestOpen = false;
+    let loginSuggestAnchor = null;
+
+    function getLoginHistoryRaw_() {
+      try {
+        const raw = localStorage.getItem(LOGIN_HISTORY_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function setLoginHistory(arr) {
+      try {
+        localStorage.setItem(LOGIN_HISTORY_KEY, JSON.stringify(arr || []));
+      } catch (e) {}
+    }
+
+    function getLoginHistory() {
+      const now = Date.now();
+      let arr = getLoginHistoryRaw_();
+
+      //  只保留 10 日內的記錄（逾期自動清掉）
+      const pruned = arr.filter(x => {
+        const ts = x && typeof x.ts === 'number' ? x.ts : 0;
+        return ts > 0 && (now - ts) <= LOGIN_HISTORY_TTL_MS;
+      });
+
+      if (pruned.length !== arr.length) {
+        setLoginHistory(pruned);
+      }
+
+      return pruned;
+    }
+
+    function saveLoginHistory(name, birthday) {
+      const nm = String(name || '').trim();
+      const bd = String(birthday || '').trim();
+      if (!nm || !bd) return;
+
+      const now = Date.now();
+      let arr = getLoginHistory(); // 已自動 prune
+
+      // 去重（同名同生日）→ 更新到最前
+      arr = arr.filter(x => !(String(x.name || '').trim() === nm && String(x.birthday || '').trim() === bd));
+      arr.unshift({ name: nm, birthday: bd, ts: now });
+
+      if (arr.length > LOGIN_HISTORY_MAX) arr = arr.slice(0, LOGIN_HISTORY_MAX);
+      setLoginHistory(arr);
+    }
+
+    function renderLoginHistory() {
+      if (!loginHistoryWrap || !loginHistoryList) return;
+
+      const arr = getLoginHistory();
+      if (!arr.length) {
+        loginHistoryList.innerHTML = '';
+        loginHistoryWrap.style.display = 'none';
+        loginHistoryWrap.setAttribute('aria-hidden', 'true');
+        loginSuggestOpen = false;
+        loginSuggestAnchor = null;
+        return;
+      }
+
+      loginHistoryList.innerHTML = arr.map((x, idx) => {
+        const nm = escapeHTML(x.name || '');
+        const bd = escapeHTML(x.birthday || '');
+        return (
+          '<div class="login-chip" role="button" tabindex="0" data-login-idx="' + idx + '">' +
+            '<span class="nm">' + nm + '</span>' +
+            '<span class="bd">｜' + bd + '</span>' +
+          '</div>'
+        );
+      }).join('');
+      //  不在這裡直接顯示：顯示由 showLoginHistorySuggest 控制
+    }
+
+    function positionLoginHistoryWrap_(anchorEl) {
+      if (!loginHistoryWrap || !anchorEl) return;
+
+      const panel = document.querySelector('.login-panel');
+      if (!panel) return;
+
+      const pr = panel.getBoundingClientRect();
+      const ir = anchorEl.getBoundingClientRect();
+
+      const top = (ir.bottom - pr.top) + 8;
+      const left = (ir.left - pr.left);
+      const width = ir.width;
+
+      loginHistoryWrap.style.top = top + 'px';
+      loginHistoryWrap.style.left = left + 'px';
+      loginHistoryWrap.style.width = Math.max(220, width) + 'px';
+    }
+
+    function showLoginHistorySuggest(anchorEl) {
+      if (!loginHistoryWrap || !loginHistoryList) return;
+
+      renderLoginHistory();
+
+      const arr = getLoginHistory();
+      if (!arr.length) return;
+
+      loginSuggestAnchor = anchorEl || loginSuggestAnchor || loginNameInput;
+      positionLoginHistoryWrap_(loginSuggestAnchor);
+
+      loginHistoryWrap.style.display = 'block';
+      loginHistoryWrap.setAttribute('aria-hidden', 'false');
+      loginSuggestOpen = true;
+    }
+
+    function hideLoginHistorySuggest() {
+      if (!loginHistoryWrap) return;
+      loginHistoryWrap.style.display = 'none';
+      loginHistoryWrap.setAttribute('aria-hidden', 'true');
+      loginSuggestOpen = false;
+      loginSuggestAnchor = null;
+    }
+
+    //  點任一輸入框 → 出現動態框（可點選）
+    if (loginNameInput) {
+      loginNameInput.addEventListener('focus', function () {
+        showLoginHistorySuggest(loginNameInput);
+      });
+      loginNameInput.addEventListener('click', function () {
+        showLoginHistorySuggest(loginNameInput);
+      });
+    }
+
+    if (loginBirthdayInput) {
+      loginBirthdayInput.addEventListener('focus', function () {
+        showLoginHistorySuggest(loginBirthdayInput);
+      });
+      loginBirthdayInput.addEventListener('click', function () {
+        showLoginHistorySuggest(loginBirthdayInput);
+      });
+    }
+
+    //  點外面自動關閉（不影響點選 chip）
+    document.addEventListener('mousedown', function (e) {
+      if (!loginSuggestOpen) return;
+      const t = e.target;
+      if (!loginHistoryWrap) return;
+      if (loginHistoryWrap.contains(t)) return;
+      if (t === loginNameInput || t === loginBirthdayInput) return;
+      hideLoginHistorySuggest();
+    });
+
+    //  視窗大小變動時若開著，重算位置
+    window.addEventListener('resize', function () {
+      if (!loginSuggestOpen || !loginSuggestAnchor) return;
+      positionLoginHistoryWrap_(loginSuggestAnchor);
+    });
+
+    if (loginHistoryList) {
+      loginHistoryList.addEventListener('click', function (e) {
+        const el = e.target.closest('[data-login-idx]');
+        if (!el) return;
+        const idx = parseInt(el.getAttribute('data-login-idx'), 10);
+        const arr = getLoginHistory();
+        const item = arr[idx];
+        if (!item) return;
+
+        //  只有點擊才帶入（不自動填入）
+        loginNameInput.value = String(item.name || '');
+        loginBirthdayInput.value = String(item.birthday || '');
+        loginBirthdayInput.focus();
+
+        hideLoginHistorySuggest();
+      });
+
+      loginHistoryList.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const el = e.target.closest('[data-login-idx]');
+        if (!el) return;
+        el.click();
+      });
+    }
+
+    if (clearLoginHistoryBtn) {
+      clearLoginHistoryBtn.addEventListener('click', function () {
+        try { localStorage.removeItem(LOGIN_HISTORY_KEY); } catch (e) {}
+        renderLoginHistory();
+        hideLoginHistorySuggest();
+      });
+    }
+
+    function setLoading(text) {
+      if (text) {
+        loadingMsg.innerHTML =
+          '<span class="msg-inline-icon">⏳</span><span>' + escapeHTML(text) + '</span>';
+      } else {
+        loadingMsg.innerHTML = '';
+      }
+    }
+
+    function escapeHTML(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    //  新增：regex escape（出勤記錄列式篩選用）
+    function escapeRegex(s) {
+      return String(s == null ? '' : s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    //  修正：欄位顯示/隱藏後，強制同步表頭與表格寬度（做兩次，避免偶發不對齊）
+    function syncDtLayout_() {
+      if (!table) return;
+      try {
+        table.columns.adjust().draw(false);
+      } catch (e) {}
+      requestAnimationFrame(function () {
+        if (!table) return;
+        try {
+          table.columns.adjust().draw(false);
+        } catch (e) {}
+      });
+    }
+
+    function fmtMDFromISO(iso) {
+      if (!iso) return '';
+      const d = new Date(iso + 'T00:00:00Z');
+      return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+    }
+
+    function compareMD(a, b) {
+      const pa = String(a).split('/');
+      const pb = String(b).split('/');
+      if (pa.length !== 2 || pb.length !== 2) return String(a).localeCompare(String(b), 'en-US', { numeric: true });
+      const am = parseInt(pa[0], 10) || 0;
+      const ad = parseInt(pa[1], 10) || 0;
+      const bm = parseInt(pb[0], 10) || 0;
+      const bd = parseInt(pb[1], 10) || 0;
+      if (am === bm) return ad - bd;
+      return am - bm;
+    }
+
+    //  新增：計算分頁人數與離職人數
+    function computePageStats() {
+      const headers = LAST.headers || [];
+      const rows = LAST.rows || [];
+      const nameCol = findNameCol(headers);
+      
+      if (nameCol < 0 || rows.length === 0) {
+        pageTotal.textContent = '0';
+        pageLeave.textContent = '離職：0';
+        return;
+      }
+      
+      const peopleSet = new Set();
+      const leaveSet = new Set();
+      
+      //  修正：統計各人員該列有"離"文字則算1
+      rows.forEach(row => {
+        const name = String(row.v[nameCol] || '').trim();
+        if (!name) return;
+        
+        // 檢查該行所有欄位是否包含「離」字
+        let isLeave = false;
+        for (let col = 0; col < row.v.length; col++) {
+          const cellValue = String(row.v[col] || '').trim();
+          if (cellValue.indexOf('離') >= 0) {
+            isLeave = true;
+            break;
+          }
+        }
+        
+        if (isLeave) {
+          leaveSet.add(name);
+        } else {
+          peopleSet.add(name);
+        }
+      });
+      
+      const total = peopleSet.size + leaveSet.size;
+      
+      pageTotal.textContent = total + ' 人';
+      pageLeave.textContent = '離職：' + leaveSet.size + ' 人';
+    }
+
+    function parseCellForRules(cell) {
+      const raw = (cell || '').toString().trim();
+      if (!raw) return { excludeDen: false, excludeAbs: false, tokens: [] };
+      const tokens = raw.split(/[、，,;／\/\n]+/).map(x => x.trim()).filter(Boolean);
+      const excludeDen = tokens.some(t => EXCLUDE_FROM_DENOM.has(t));
+      const excludeAbs = tokens.some(t => EXCLUDE_FROM_ABS.has(t)) ||
+        (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
+      return { excludeDen, excludeAbs, tokens };
+    }
+
+    function tokenizeCell(raw) {
+      const info = parseCellForRules(raw);
+      return info.tokens.filter(t => !EXCLUDE_SET.has(t));
+    }
+
+    //  單人假別欄位篩選：要包含「休/例/國/未」等班表常用標記，因此不套用 EXCLUDE_SET
+    function tokenizeCellForLeaveFilter(raw) {
+      const info = parseCellForRules(raw);
+      return info.tokens.filter(Boolean);
+    }
+
+    //  單人假別欄位篩選：若後端沒有辨識出 dateCols（例如「12/16(二)」這種表頭），前端用較寬鬆規則補抓一次
+    function detectDateColsFromHeadersForLeaveFilter_(headers) {
+      const res = [];
+      if (!headers || !headers.length) return res;
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        // yyyy/mm/dd 或 yyyy-mm-dd（可包含其他字，如「(二)」）
+        if (/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/.test(h)) { res.push(i); continue; }
+        // mm/dd 或 m/d（可包含其他字）
+        if (/(\d{1,2})[\/\-](\d{1,2})/.test(h)) { res.push(i); continue; }
+        // 12月16日
+        if (/(\d{1,2})月(\d{1,2})日/.test(h)) { res.push(i); continue; }
+      }
+      return res;
+    }
+
+
+    // 前端 findNameCol（加強版，跟後端同步）
+    function findNameCol(headers) {
+      if (!headers || !headers.length) return -1;
+
+      const EXACT = ['姓名','Name','name','員工姓名','姓名(必填)','中文姓名'];
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (EXACT.indexOf(h) >= 0) return i;
+      }
+
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (
+          h.indexOf('姓名') >= 0 ||
+          h.indexOf('員工') >= 0 ||
+          /^name$/i.test(h) ||
+          /employee/i.test(h)
+        ) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    //  新增：找「日期」欄
+    function findDateCol(headers) {
+      if (!headers || !headers.length) return -1;
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (h.indexOf('日期') >= 0 || /^date$/i.test(h)) return i;
+      }
+      return -1;
+    }
+
+    //  新增：找「假別」欄
+    function findLeaveCol(headers) {
+      if (!headers || !headers.length) return -1;
+
+      const EXACT = ['假別','請假','休假類別','缺勤類別','狀態','出勤狀態'];
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (EXACT.indexOf(h) >= 0) return i;
+      }
+
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (h.indexOf('日期') >= 0 || h.indexOf('姓名') >= 0) continue;
+        if (h.indexOf('假') >= 0 || h.indexOf('請假') >= 0 || h.indexOf('缺勤') >= 0 || h.indexOf('狀態') >= 0) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    //  新增：解析任意日期字串 → ISO
+    function guessISOFromText(t) {
+      const s = String(t || '').trim();
+      if (!s) return '';
+
+      let m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+      if (m) {
+        const y = m[1];
+        const mo = ('0' + m[2]).slice(-2);
+        const d = ('0' + m[3]).slice(-2);
+        return y + '-' + mo + '-' + d;
+      }
+
+      m = s.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+      if (m) {
+        const y = String(new Date().getFullYear());
+        const mo = ('0' + m[1]).slice(-2);
+        const d = ('0' + m[2]).slice(-2);
+        return y + '-' + mo + '-' + d;
+      }
+
+      m = s.match(/^(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日$/);
+      if (m) {
+        const y = m[1] || String(new Date().getFullYear());
+        const mo = ('0' + m[2]).slice(-2);
+        const d = ('0' + m[3]).slice(-2);
+        return y + '-' + mo + '-' + d;
+      }
+
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const mo = ('0' + (dt.getMonth() + 1)).slice(-2);
+        const d = ('0' + dt.getDate()).slice(-2);
+        return y + '-' + mo + '-' + d;
+      }
+
+      return '';
+    }
+
+    function findDeptCol(headers) {
+      if (!headers || !headers.length) return -1;
+
+      const EXACT = ['組別','部門','Group','群組','課別','單位','部門別'];
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (EXACT.indexOf(h) >= 0) return i;
+      }
+
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (!h) continue;
+        if (
+          h.indexOf('部門') >= 0 ||
+          h.indexOf('組別') >= 0 ||
+          h.indexOf('群組') >= 0 ||
+          h.indexOf('課別') >= 0 ||
+          h.indexOf('單位') >= 0 ||
+          /dept|department|group/i.test(h)
+        ) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    function findShiftCol(headers) {
+      const CANDS = ['班別','班次'];
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (CANDS.indexOf(h) >= 0) return i;
+      }
+      return -1;
+    }
+
+    function findEmpIdCol(headers) {
+      const CANDS = ['員編','工號','員工編號','員工代號'];
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || '').trim();
+        if (CANDS.indexOf(h) >= 0) return i;
+      }
+      return -1;
+    }
+
+    function updateBrandLabel() {
+      if (!warehouseSub) return;
+      if (currentWarehouse) {
+        warehouseSub.textContent = currentWarehouse + ' 出勤查詢';
+      } else {
+        warehouseSub.textContent = '出勤查詢';
+      }
+    }
+
+    function updateStatsVisibility() {
+      const isScheduleSheet = currentSheet && currentSheet.indexOf('班表') >= 0;
+      const isRecordSheet   = currentSheet && currentSheet.indexOf('出勤記錄') >= 0;
+
+      const isLeaveStatSheet = isScheduleSheet || isRecordSheet;
+
+      //  修正：出勤記錄分頁也要有此功能
+      leaveFilterBlock.style.display  = isLeaveStatSheet ? 'block' : 'none';
+      singleStatBlock.style.display   = isLeaveStatSheet ? 'block' : 'none';
+      attStatBlock.style.display      = isScheduleSheet ? 'block' : 'none';
+      adminNameBlock.style.display    = (isLeaveStatSheet && isAdmin) ? 'block' : 'none';
+      allAttStatBlock.style.display   = (isScheduleSheet && isAdmin) ? 'block' : 'none';
+
+      if (warehouseBlock) {
+        warehouseBlock.style.display = isAdmin ? 'flex' : 'none';
+      }
+      if (findWarehouseBlock) {
+        findWarehouseBlock.style.display = isAdmin ? 'flex' : 'none';
+      }
+      if (openSheetBlock) {
+        openSheetBlock.style.display = isAdmin ? 'flex' : 'none';
+      }
+      //  管理者才需要：預先刷新「開啟試算表」連結（避免點擊時才抓，導致被瀏覽器當成 popup）
+      if (isAdmin) {
+        try { refreshOpenSheetLink_(); } catch (_) {}
+      }
+    }
+
+    function updateFreezeOptions() {
+      const headers = LAST.headers || [];
+      if (!headers.length) {
+        freezeStart.innerHTML = '';
+        freezeEnd.innerHTML = '';
+        return;
+      }
+      const opts = headers.map((t, i) =>
+        '<option value="' + i + '">' + (i + 1) + '. ' + escapeHTML(t || '') + '</option>'
+      ).join('');
+      freezeStart.innerHTML = opts;
+      freezeEnd.innerHTML = opts;
+      freezeStart.value = '0';
+      freezeEnd.value = '0';
+    }
+
+    function renderTableWithFrozen() {
+      if (lastPayload) renderTable(lastPayload);
+    }
+
+    function updateLeaveFilterOptions() {
+      const prevTag = leaveFilterSelect.value || '';
+      let rows = LAST.rows || [];
+      try {
+        //  依 DataTables 目前搜尋結果（姓名搜尋框）限定「單人」範圍
+        if (table) rows = table.rows({ search: 'applied' }).data().toArray();
+      } catch (e) {}
+      const headers = LAST.headers || [];
+      let dateCols = LAST.dateCols || [];
+
+      //  fallback：某些 DataTables 初始化/搜尋延遲時，API 可能暫時抓不到 applied rows
+      if ((!rows || !rows.length) && LAST && Array.isArray(LAST.rows) && LAST.rows.length) {
+        const inputEl = document.querySelector('#tbl_wrapper .dt-search input, #tbl_filter input');
+        const q = inputEl ? String(inputEl.value || '').trim() : '';
+        if (q) {
+          const ql = q.toLowerCase();
+          rows = LAST.rows.filter(r => {
+            const s = (r && r.v) ? r.v.join(' ') : '';
+            return s.toLowerCase().indexOf(ql) >= 0;
+          });
+        } else {
+          rows = LAST.rows;
+        }
+      }
+
+      //  dateCols 補抓（只影響單人假別欄位篩選，不動其他統計）
+      if (!Array.isArray(dateCols) || dateCols.length === 0) {
+        dateCols = detectDateColsFromHeadersForLeaveFilter_(headers);
+      }
+
+      // 重置模式
+      LEAVE_FILTER_MODE = (Array.isArray(dateCols) && dateCols.length > 0) ? 'matrix' : 'record';
+
+      const set = new Set();
+
+      if (!rows.length) {
+        leaveFilterSelect.innerHTML = '<option value="">全部日期</option>';
+        leaveFilterSelect.disabled = true;
+        clearLeaveFilterBtn.disabled = true;
+        return;
+      }
+
+      if (LEAVE_FILTER_MODE === 'matrix') {
+        // 班表：從日期欄位取 token，顯示「有該假別」的日期欄
+        dateCols.forEach(ci => {
+          rows.forEach(row => {
+            tokenizeCellForLeaveFilter(row.v[ci]).forEach(tag => set.add(tag));
+          });
+        });
+      } else {
+        // 出勤記錄：找「假別/狀態」欄，做列式過濾
+        const leaveIdx = findLeaveCol(headers);
+        if (leaveIdx < 0) {
+          leaveFilterSelect.innerHTML = '<option value="">全部日期</option>';
+          leaveFilterSelect.disabled = true;
+          clearLeaveFilterBtn.disabled = true;
+          return;
+        }
+        rows.forEach(row => {
+          tokenizeCellForLeaveFilter(row.v[leaveIdx]).forEach(tag => set.add(tag));
+        });
+      }
+
+      if (!set.size) {
+        leaveFilterSelect.innerHTML = '<option value="">全部日期</option>';
+        leaveFilterSelect.disabled = true;
+        clearLeaveFilterBtn.disabled = true;
+        return;
+      }
+
+      const options = ['<option value="">全部日期</option>'].concat(
+        [...set].sort((a, b) => a.localeCompare(b, 'zh-HANT')).map(t =>
+          '<option value="' + escapeHTML(t) + '">' + escapeHTML(t) + '</option>'
+        )
+      );
+      leaveFilterSelect.innerHTML = options.join('');
+      leaveFilterSelect.disabled = false;
+      clearLeaveFilterBtn.disabled = false;
+
+      //  保留原選取（例如管理者用搜尋框切換姓名時）
+      if (prevTag) {
+        const exists = Array.from(leaveFilterSelect.options).some(o => o.value === prevTag);
+        leaveFilterSelect.value = exists ? prevTag : '';
+      }
+    }
+
+    function applyLeaveFilterInternal(tag) {
+      if (!table || !tag) return;
+      const headers = LAST.headers || [];
+      let rows = LAST.rows || [];
+      try {
+        //  依 DataTables 目前搜尋結果（姓名搜尋框）限定「單人」範圍
+        if (table) rows = table.rows({ search: 'applied' }).data().toArray();
+      } catch (e) {}
+
+      //  fallback：某些 DataTables 初始化/搜尋延遲時，API 可能暫時抓不到 applied rows
+      if ((!rows || !rows.length) && LAST && Array.isArray(LAST.rows) && LAST.rows.length) {
+        const inputEl = document.querySelector('#tbl_wrapper .dt-search input, #tbl_filter input');
+        const q = inputEl ? String(inputEl.value || '').trim() : '';
+        if (q) {
+          const ql = q.toLowerCase();
+          rows = LAST.rows.filter(r => {
+            const s = (r && r.v) ? r.v.join(' ') : '';
+            return s.toLowerCase().indexOf(ql) >= 0;
+          });
+        } else {
+          rows = LAST.rows;
+        }
+      }
+
+      //  dateCols 補抓（只影響單人假別欄位篩選）
+      let dateCols = LAST.dateCols || [];
+      if (!Array.isArray(dateCols) || dateCols.length === 0) {
+        dateCols = detectDateColsFromHeadersForLeaveFilter_(headers);
+      }
+
+      if (!headers.length || !rows.length) return;
+
+      if (LEAVE_FILTER_MODE === 'matrix') {
+        // 班表：欄位顯示/隱藏（只保留含該假別的日期欄）
+        if (!dateCols.length) return;
+
+        if (!savedVisibilityForLeaveFilter) {
+          savedVisibilityForLeaveFilter = table.columns().visible().toArray();
+        }
+
+        const vis = savedVisibilityForLeaveFilter.slice();
+
+        //  其他欄位不變：只依假別決定哪些「日期欄」要顯示
+        dateCols.forEach(ci => {
+          let has = false;
+          for (let r = 0; r < rows.length; r++) {
+            const toks = tokenizeCellForLeaveFilter(rows[r].v[ci]);
+            if (toks.includes(tag)) {
+              has = true;
+              break;
+            }
+          }
+          vis[ci] = has;
+        });
+
+        vis.forEach((v, idx) => table.column(idx).visible(v, false));
+        table.columns.adjust().draw(false);
+
+        //  修正：欄位篩選後強制同步表頭/欄位寬度，避免不對齊或表頭消失
+        syncDtLayout_();
+      } else {
+        // 出勤記錄：以「假別/狀態」欄做列式過濾
+        const leaveIdx = findLeaveCol(headers);
+        if (leaveIdx < 0) return;
+
+        if (!savedSearchForLeaveFilter) {
+          savedSearchForLeaveFilter = {
+            global: table.search(),
+            leave: table.column(leaveIdx).search()
+          };
+        }
+
+        // 以 token 邊界做 regex（更準）
+        const re = '(^|[\\s\\n、，,;／/])' + escapeRegex(tag) + '($|[\\s\\n、，,;／/])';
+        table.column(leaveIdx).search(re, true, false);
+        table.draw(false);
+
+        //  同步寬度（出勤記錄也可能有 scrollX 造成對齊問題）
+        syncDtLayout_();
+      }
+    }
+
+    function clearLeaveFilterInternal() {
+      if (!table) return;
+
+      if (LEAVE_FILTER_MODE === 'matrix') {
+        if (savedVisibilityForLeaveFilter) {
+          savedVisibilityForLeaveFilter.forEach((v, idx) => table.column(idx).visible(v, false));
+        } else {
+          table.columns().visible(true, false);
+        }
+        table.columns.adjust().draw(false);
+        savedVisibilityForLeaveFilter = null;
+        leaveFilterSelect.value = '';
+
+        //  修正：清除後也強制同步一次
+        syncDtLayout_();
+        return;
+      }
+
+      // record mode：清掉欄位搜尋並還原
+      const headers = LAST.headers || [];
+      const leaveIdx = findLeaveCol(headers);
+      if (leaveIdx >= 0) {
+        if (savedSearchForLeaveFilter) {
+          table.search(savedSearchForLeaveFilter.global || '');
+          table.column(leaveIdx).search(savedSearchForLeaveFilter.leave || '');
+        } else {
+          table.column(leaveIdx).search('');
+        }
+        table.draw(false);
+      }
+      savedSearchForLeaveFilter = null;
+      leaveFilterSelect.value = '';
+
+      //  同步一次
+      syncDtLayout_();
+    }
+
+    function destroySingleStat() {
+      if (singleStatDT) {
+        singleStatDT.destroy();
+        singleStatDT = null;
+      }
+      document.getElementById('singleStatTbl').innerHTML = '';
+      singleStatTitle.textContent = '—';
+      if (singleStatCaption) singleStatCaption.textContent = '—';
+    }
+
+    function destroyAttStat() {
+      if (attStatDT) {
+        attStatDT.destroy();
+        attStatDT = null;
+      }
+      document.getElementById('attStatTbl').innerHTML = '';
+      attStatTitle.textContent = '—';
+    }
+
+    function destroyAllAttStat() {
+      if (allAttStatDT) {
+        allAttStatDT.destroy();
+        allAttStatDT = null;
+      }
+      document.getElementById('allAttStatTbl').innerHTML = '';
+      allAttStatTitle.textContent = '—';
+    }
+
+    async function downloadElementAsPNG(el, filenameBase) {
+      if (!el) return;
+      const canvas = await html2canvas(el, { backgroundColor: '#FFFFFF', scale: 2 });
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filenameBase + '.png';
+      a.click();
+    }
+
+    function buildSingleStat() {
+      if (!loginName) {
+        alert('請先登入後再使用單人假別統計');
+        return;
+      }
+
+      const headers = LAST.headers || [];
+      const headersISO = LAST.headersISO || [];
+      const allRows = LAST.rows || [];
+      const dateCols = LAST.dateCols || [];
+
+      if (!allRows.length) {
+        alert('目前分頁沒有可統計的資料。');
+        return;
+      }
+
+      const targetName = isAdmin ? (statName || '') : loginName;
+      if (isAdmin && !targetName) {
+        alert('請先輸入要統計的姓名（管理者姓名選擇區塊）');
+        return;
+      }
+
+      let rows = allRows;
+      const nameCol = findNameCol(headers);
+      if (targetName && nameCol >= 0) {
+        rows = allRows.filter(r => String(r.v[nameCol] || '').trim() === targetName);
+      }
+
+      if (!rows.length) {
+        alert('找不到姓名「' + targetName + '」的資料');
+        return;
+      }
+
+      const displayName = targetName || loginName;
+      const deptLabel = getDeptLabel(headers, allRows, targetName);
+      const shiftLabel = getShiftLabel(headers, rows);
+      const empIdLabel = getEmpIdLabel(headers, rows);
+
+      const parts = [];
+      if (currentSheet) parts.push(currentSheet);
+      if (deptLabel) parts.push(deptLabel);
+      if (shiftLabel) parts.push(shiftLabel);
+      if (empIdLabel) parts.push(empIdLabel);
+      parts.push(displayName);
+      const noteText = parts.join(' ');
+
+      const tagDatesMap = new Map();
+
+      const isMatrixMode = Array.isArray(dateCols) && dateCols.length > 0;
+
+      if (isMatrixMode) {
+        dateCols.forEach(ci => {
+          const iso = headersISO[ci] || '';
+          const md = iso ? fmtMDFromISO(iso) : (headers[ci] || '');
+          rows.forEach(row => {
+            tokenizeCell(row.v[ci]).forEach(tag => {
+              if (!tagDatesMap.has(tag)) tagDatesMap.set(tag, new Set());
+              tagDatesMap.get(tag).add(md);
+            });
+          });
+        });
+      } else {
+        const dateIdx = findDateCol(headers);
+        const leaveIdx = findLeaveCol(headers);
+
+        if (dateIdx < 0 || leaveIdx < 0) {
+          alert('此分頁找不到可統計的欄位（需要「日期」與「假別/狀態」欄）。');
+          return;
+        }
+
+        rows.forEach(row => {
+          const ds = String(row.v[dateIdx] || '').trim();
+          const iso = guessISOFromText(ds);
+          const md = iso ? fmtMDFromISO(iso) : ds;
+
+          const leaveRaw = row.v[leaveIdx];
+          const tags = tokenizeCell(leaveRaw);
+
+          tags.forEach(tag => {
+            if (!tagDatesMap.has(tag)) tagDatesMap.set(tag, new Set());
+            tagDatesMap.get(tag).add(md);
+          });
+        });
+      }
+
+      if (!tagDatesMap.size) {
+        alert('沒有可統計的假別資料（可能該分頁沒有假別/狀態內容）。');
+        return;
+      }
+
+      const data = [...tagDatesMap.entries()].map(([tag, setDates]) => {
+        const list = Array.from(setDates);
+        list.sort(compareMD);
+        return [tag, list.join('、'), list.length];
+      }).sort((a, b) => a[0].localeCompare(b[0], 'zh-HANT'));
+
+      destroySingleStat();
+
+      singleStatTitle.textContent = (currentSheet || '分頁') + ' ‧ ' + displayName;
+      const filenameBase = displayName + '_' + (currentSheet || '分頁') + '_單人假別統計';
+
+      singleStatDT = new DataTable('#singleStatTbl', {
+        data,
+        columns: [
+          { title: '假別', data: 0 },
+          { title: '日期', data: 1 },
+          { title: '天數', data: 2 }
+        ],
+        order: [[0, 'asc']],
+        pageLength: 25,
+        lengthMenu: [10, 25, 50, 100, 200],
+        language: { url: '//cdn.datatables.net/plug-ins/2.3.4/i18n/zh-HANT.json' },
+        layout: {
+          topStart: ['search'],
+          topEnd: ['buttons'],
+          bottomStart: ['pageLength'],
+          bottomEnd: ['info', 'paging']
+        },
+        buttons: [
+          {
+            extend: 'excelHtml5',
+            text: '匯出 Excel',
+            title: filenameBase
+          },
+          {
+            extend: 'csvHtml5',
+            text: '匯出 CSV',
+            title: filenameBase
+          },
+          {
+            text: '下載 PNG',
+            action: function () {
+              (async function () {
+                const wrapper = document.getElementById('singleStatTbl')
+                  .closest('.dataTables_wrapper') || singleStatWrap;
+                wrapper.classList.add('export-only-table');
+                try {
+                  await downloadElementAsPNG(wrapper, filenameBase);
+                } finally {
+                  wrapper.classList.remove('export-only-table');
+                }
+              })();
+            }
+          }
+        ]
+      });
+
+      (function () {
+        const tblEl = document.getElementById('singleStatTbl');
+        if (!tblEl) return;
+        let tfoot = tblEl.tFoot;
+        if (!tfoot) {
+          tfoot = tblEl.createTFoot();
+        }
+        let tr = tfoot.rows[0];
+        if (!tr) {
+          tr = tfoot.insertRow(0);
+        }
+        tr.innerHTML = '';
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.textContent = noteText;
+        td.className = 'single-stat-note';
+        tr.appendChild(td);
+      })();
+    }
+
+    function isShouldAttendCell(raw) {
+      const s = (raw == null ? '' : String(raw)).trim();
+      if (!s) return true;
+      const tokens = s.split(/[、，,;／\/\n]+/).map(x => x.trim()).filter(Boolean);
+      return !tokens.some(t => EXCLUDE_FOR_ATT_RATE.has(t));
+    }
+
+    function isActualAttendCell(colIndex, row) {
+      if (row && Array.isArray(row.att) && typeof row.att[colIndex] !== 'undefined') {
+        return !!row.att[colIndex];
+      }
+      return false;
+    }
+
+    function getDeptLabel(headers, allRows, targetName) {
+      const deptIdx = findDeptCol(headers);
+      if (deptIdx < 0) return '未填部門';
+      const nameIdx = findNameCol(headers);
+      const set = new Set();
+      allRows.forEach(r => {
+        if (nameIdx >= 0 && targetName) {
+          const nm = String(r.v[nameIdx] || '').trim();
+          if (nm !== targetName) return;
+        }
+        const dept = String(r.v[deptIdx] || '').trim();
+        if (dept) set.add(dept);
+      });
+      if (!set.size) return '未填部門';
+      return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-HANT')).join('、');
+    }
+
+    function getShiftLabel(headers, rows) {
+      const shiftIdx = findShiftCol(headers);
+      if (shiftIdx < 0) return '';
+      const set = new Set();
+      rows.forEach(r => {
+        const v = String(r.v[shiftIdx] || '').trim();
+        if (v) set.add(v);
+      });
+      if (!set.size) return '';
+      return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-HANT')).join('、');
+    }
+
+    function getEmpIdLabel(headers, rows) {
+      const empIdx = findEmpIdCol(headers);
+      if (empIdx < 0) return '';
+      const set = new Set();
+      rows.forEach(r => {
+        const v = String(r.v[empIdx] || '').trim();
+        if (v) set.add(v);
+      });
+      if (!set.size) return '';
+      return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-HANT')).join('、');
+    }
+
+    function updateAttStatDateOptions() {
+      const dateCols = LAST.dateCols || [];
+      const headers = LAST.headers || [];
+      const headersISO = LAST.headersISO || [];
+
+      ATT_DATE_LIST = [];
+
+      if (!dateCols.length) {
+        attEndDateSelect.innerHTML = '<option value="">全部日期</option>';
+        attSingleDateSelect.innerHTML = '<option value="">不指定</option>';
+        attEndDateSelect.disabled = true;
+        attSingleDateSelect.disabled = true;
+        buildAttStatBtn.disabled = true;
+        clearAttStatBtn.disabled = true;
+        return;
+      }
+
+      const tmp = dateCols.map(ci => {
+        const iso = headersISO[ci] || '';
+        const label = iso ? fmtMDFromISO(iso) : String(headers[ci] || '');
+        return { ci, iso, label };
+      });
+
+      tmp.sort((a, b) => {
+        if (a.iso && b.iso && a.iso !== b.iso) return a.iso.localeCompare(b.iso);
+        return compareMD(a.label, b.label);
+      });
+
+      ATT_DATE_LIST = tmp;
+
+      const endOpts = ['<option value="">全部日期</option>'];
+      const singleOpts = ['<option value="">不指定</option>'];
+
+      ATT_DATE_LIST.forEach(d => {
+        const val = d.iso || ('idx_' + d.ci);
+        const label = escapeHTML(d.label);
+        endOpts.push('<option value="' + val + '">' + label + '</option>');
+        singleOpts.push('<option value="' + val + '">' + label + '</option>');
+      });
+
+      attEndDateSelect.innerHTML = endOpts.join('');
+      attSingleDateSelect.innerHTML = singleOpts.join('');
+      attEndDateSelect.disabled = false;
+      attSingleDateSelect.disabled = false;
+      buildAttStatBtn.disabled = false;
+      clearAttStatBtn.disabled = false;
+
+      if (ATT_DATE_LIST.length) {
+        const last = ATT_DATE_LIST[ATT_DATE_LIST.length - 1];
+        attEndDateSelect.value = last.iso || ('idx_' + last.ci);
+      }
+    }
+
+    function getDateIndicesUpToEndSelected() {
+      const val = attEndDateSelect.value;
+      if (!ATT_DATE_LIST.length) return LAST.dateCols.slice();
+      if (!val) return ATT_DATE_LIST.map(d => d.ci);
+      const idx = ATT_DATE_LIST.findIndex(d => (d.iso || ('idx_' + d.ci)) === val);
+      if (idx === -1) return ATT_DATE_LIST.map(d => d.ci);
+      return ATT_DATE_LIST.slice(0, idx + 1).map(d => d.ci);
+    }
+
+    function getDateIndexForSingleSelected() {
+      const val = attSingleDateSelect.value;
+      if (!val || !ATT_DATE_LIST.length) return null;
+      const found = ATT_DATE_LIST.find(d => (d.iso || ('idx_' + d.ci)) === val);
+      return found ? found.ci : null;
+    }
+
+    function getLabelForEndSelected() {
+      const val = attEndDateSelect.value;
+      if (!val || !ATT_DATE_LIST.length) return '全部日期';
+      const idx = ATT_DATE_LIST.findIndex(d => (d.iso || ('idx_' + d.ci)) === val);
+      if (idx === -1) return '起始日至選擇日';
+      return '起始日至 ' + ATT_DATE_LIST[idx].label;
+    }
+
+    function getLabelForSingleSelected(singleIndex) {
+      if (singleIndex == null || !ATT_DATE_LIST.length) return '';
+      const d = ATT_DATE_LIST.find(x => x.ci === singleIndex);
+      return '單日 ' + (d ? d.label : '指定日期');
+    }
+
+    function buildAttStat() {
+      if (!loginName) {
+        alert('請先登入後再使用出勤率統計');
+        return;
+      }
+
+      const headers = LAST.headers || [];
+      const allRows = LAST.rows || [];
+      const dateCols = LAST.dateCols || [];
+
+      if (!allRows.length || !dateCols.length) {
+        alert('目前分頁沒有可統計的日期欄。');
+        return;
+      }
+
+      const targetName = isAdmin ? (statName || '') : loginName;
+      if (isAdmin && !targetName) {
+        alert('請先輸入要統計的姓名（管理者姓名選擇區塊）');
+        return;
+      }
+
+      let rows = allRows;
+      const nameCol = findNameCol(headers);
+      if (targetName && nameCol >= 0) {
+        rows = allRows.filter(r => String(r.v[nameCol] || '').trim() === targetName);
+      }
+
+      if (!rows.length) {
+        alert('找不到姓名「' + targetName + '」的資料');
+        return;
+      }
+
+      if (!ATT_DATE_LIST.length) {
+        alert('目前分頁沒有可統計的日期欄。');
+        return;
+      }
+
+      const displayName = targetName || loginName;
+      const deptLabel = getDeptLabel(headers, allRows, targetName);
+
+      const idxRange = getDateIndicesUpToEndSelected();
+      const singleIdx = getDateIndexForSingleSelected();
+
+      function computeForCols(colIndices) {
+        let shouldDays = 0;
+        let actDays = 0;
+        rows.forEach(row => {
+          colIndices.forEach(ci => {
+            if (isShouldAttendCell(row.v[ci])) {
+              shouldDays++;
+              if (isActualAttendCell(ci, row)) {
+                actDays++;
+              }
+            }
+          });
+        });
+        const absent = shouldDays - actDays;
+        const rate = shouldDays > 0 ? (actDays / shouldDays * 100) : null;
+        return { shouldDays, actDays, absent, rate };
+      }
+
+      const dataRows = [];
+      const rangeLabel = getLabelForEndSelected();
+      const rangeStat = computeForCols(idxRange);
+      dataRows.push([
+        displayName,
+        deptLabel,
+        rangeLabel,
+        rangeStat.shouldDays,
+        rangeStat.actDays,
+        rangeStat.absent,
+        rangeStat.rate != null ? rangeStat.rate.toFixed(1) + '%' : '—'
+      ]);
+
+      if (singleIdx != null) {
+        const singleLabel = getLabelForSingleSelected(singleIdx);
+        const singleStat = computeForCols([singleIdx]);
+        dataRows.push([
+          displayName,
+          deptLabel,
+          singleLabel,
+          singleStat.shouldDays,
+          singleStat.actDays,
+          singleStat.absent,
+          singleStat.rate != null ? singleStat.rate.toFixed(1) + '%' : '—'
+        ]);
+      }
+
+      destroyAttStat();
+
+      const baseTitle = deptLabel + '_' + displayName + '_' + (currentSheet || '分頁') + '_單人出勤率統計';
+
+      attStatTitle.textContent = (currentSheet || '分頁') + ' ‧ ' + deptLabel + ' ‧ ' + displayName;
+
+      attStatDT = new DataTable('#attStatTbl', {
+        data: dataRows,
+        columns: [
+          { title: '姓名', data: 0 },
+          { title: '部門', data: 1 },
+          { title: '統計範圍', data: 2 },
+          { title: '應到天數', data: 3 },
+          { title: '實到天數', data: 4 },
+          { title: '未到天數', data: 5 },
+          { title: '出勤率', data: 6 }
+        ],
+        searching: false,
+        paging: false,
+        info: false,
+        ordering: false,
+        language: { url: '//cdn.datatables.net/plug-ins/2.3.4/i18n/zh-HANT.json' },
+        layout: {
+          topStart: [],
+          topEnd: ['buttons'],
+          bottomStart: [],
+          bottomEnd: []
+        },
+        buttons: [
+          {
+            extend: 'excelHtml5',
+            text: '匯出 Excel',
+            title: baseTitle
+          },
+          {
+            extend: 'csvHtml5',
+            text: '匯出 CSV',
+            title: baseTitle
+          },
+          {
+            text: '下載 PNG',
+            action: function () {
+              downloadElementAsPNG(attStatWrap, baseTitle);
+            }
+          }
+        ]
+      });
+    }
+
+    function buildAllAttStat() {
+      if (!loginName) {
+        alert('請先登入後再使用全員出勤率統計');
+        return;
+      }
+      if (!isAdmin) {
+        alert('僅管理者可使用此功能');
+        return;
+      }
+
+      const headers = LAST.headers || [];
+      const allRows = LAST.rows || [];
+      const dateCols = LAST.dateCols || [];
+
+      if (!allRows.length || !dateCols.length || !ATT_DATE_LIST.length) {
+        alert('目前分頁沒有可統計的日期欄。');
+        return;
+      }
+
+      const nameCol = findNameCol(headers);
+      if (nameCol < 0) {
+        alert('找不到姓名欄位');
+        return;
+      }
+
+      const idxRange = getDateIndicesUpToEndSelected();
+      const rangeLabel = getLabelForEndSelected();
+
+      const byName = new Map();
+      allRows.forEach(r => {
+        const nm = String(r.v[nameCol] || '').trim();
+        if (!nm) return;
+        if (!byName.has(nm)) byName.set(nm, []);
+        byName.get(nm).push(r);
+      });
+
+      function computeForCols(rows, colIndices) {
+        let shouldDays = 0;
+        let actDays = 0;
+        rows.forEach(row => {
+          colIndices.forEach(ci => {
+            if (isShouldAttendCell(row.v[ci])) {
+              shouldDays++;
+              if (isActualAttendCell(ci, row)) {
+                actDays++;
+              }
+            }
+          });
+        });
+        const rate = shouldDays > 0 ? (actDays / shouldDays * 100) : null;
+        return { shouldDays, actDays, rate };
+      }
+
+      const dataRows = [];
+      byName.forEach((rows, nm) => {
+        const deptLabel = getDeptLabel(headers, allRows, nm);
+        const shiftLabel = getShiftLabel(headers, rows) || '';
+        const st = computeForCols(rows, idxRange);
+        dataRows.push([
+          deptLabel,
+          shiftLabel,
+          nm,
+          st.shouldDays,
+          st.actDays,
+          st.rate != null ? st.rate.toFixed(1) + '%' : '—'
+        ]);
+      });
+
+      dataRows.sort((a, b) => {
+        const da = String(a[0] || '');
+        const db = String(b[0] || '');
+        const cmpDept = da.localeCompare(db, 'zh-HANT');
+        if (cmpDept !== 0) return cmpDept;
+        return String(a[2] || '').localeCompare(String(b[2] || ''), 'zh-HANT');
+      });
+
+      destroyAllAttStat();
+
+      allAttStatTitle.textContent = (currentSheet || '分頁') + ' ‧ ' + rangeLabel;
+      const baseTitle = (currentSheet || '分頁') + '_全員出勤率統計_' + rangeLabel;
+
+      allAttStatDT = new DataTable('#allAttStatTbl', {
+        data: dataRows,
+        columns: [
+          { title: '部門', data: 0 },
+          { title: '班別', data: 1 },
+          { title: '姓名', data: 2 },
+          { title: '應到天數', data: 3 },
+          { title: '實到天數', data: 4 },
+          { title: '出勤率', data: 5 }
+        ],
+        order: [[0, 'asc'], [2, 'asc']],
+        pageLength: 25,
+        lengthMenu: [10, 25, 50, 100, 200],
+        language: { url: '//cdn.datatables.net/plug-ins/2.3.4/i18n/zh-HANT.json' },
+        layout: {
+          topStart: ['search'],
+          topEnd: ['buttons'],
+          bottomStart: ['pageLength'],
+          bottomEnd: ['info', 'paging']
+        },
+        buttons: [
+          {
+            extend: 'excelHtml5',
+            text: '匯出 Excel',
+            title: baseTitle
+          },
+          {
+            extend: 'csvHtml5',
+            text: '匯出 CSV',
+            title: baseTitle
+          }
+        ]
+      });
+    }
+
+    function buildThead(headers, headersISO) {
+      const tbl = document.getElementById('tbl');
+      tbl.innerHTML = '';
+      const thead = document.createElement('thead');
+      const tr = document.createElement('tr');
+
+      headers.forEach(function (h, idx) {
+        const th = document.createElement('th');
+        th.textContent = h || '';
+        const iso = headersISO[idx];
+        if (iso) {
+          const d = new Date(iso + 'T00:00:00Z');
+          const dow = d.getUTCDay();
+          if (dow === 6) th.classList.add('col-sat');
+          if (dow === 0) th.classList.add('col-sun');
+        }
+        tr.appendChild(th);
+      });
+
+      thead.appendChild(tr);
+      tbl.appendChild(thead);
+    }
+
+    function renderTable(payload) {
+      lastPayload = payload;
+
+      const HEADERS     = payload.headers    || [];
+      const HEADERS_ISO = payload.headersISO || [];
+      const DATE_COLS   = payload.dateCols   || [];
+      const ROWS        = payload.rows       || [];
+
+      LAST = {
+        headers: HEADERS,
+        headersISO: HEADERS_ISO,
+        rows: ROWS,
+        dateCols: DATE_COLS
+      };
+
+      //  每次重繪都重置假別篩選狀態
+      savedVisibilityForLeaveFilter = null;
+      savedSearchForLeaveFilter = null;
+      if (leaveFilterSelect) leaveFilterSelect.value = '';
+
+      if (table) {
+        table.destroy();
+        table = null;
+      }
+
+      destroySingleStat();
+      destroyAttStat();
+      destroyAllAttStat();
+
+      buildThead(HEADERS, HEADERS_ISO);
+
+      const cols = HEADERS.map(function (title, idx) {
+        return {
+          data: function (row) {
+            return row.v[idx] || '';
+          },
+          createdCell: function (td, cellData, rowData) {
+            const bg = rowData.bg[idx];
+            const fc = rowData.fc[idx];
+            if (bg) td.style.backgroundColor = bg;
+            if (fc) td.style.color = fc;
+
+            if (!bg && DATE_COLS.indexOf(idx) >= 0) {
+              const iso = HEADERS_ISO[idx];
+              if (iso) {
+                const d = new Date(iso + 'T00:00:00Z');
+                const dow = d.getUTCDay();
+                if (dow === 6) td.classList.add('col-sat');
+                if (dow === 0) td.classList.add('col-sun');
+              }
+            }
+          }
+        };
+      });
+
+      const dtOptions = {
+        data: ROWS,
+        columns: cols,
+        scrollX: true,
+        pageLength: 50,
+        lengthMenu: [10, 25, 50, 100, 200],
+        order: [],
+        language: {
+          url: '//cdn.datatables.net/plug-ins/2.3.4/i18n/zh-HANT.json'
+        },
+        layout: {
+          topStart: ['search'],
+          topEnd: ['buttons'],
+          bottomStart: ['pageLength'],
+          bottomEnd: ['info', 'paging']
+        },
+        buttons: [
+          {
+            extend: 'excelHtml5',
+            text: '匯出 Excel',
+            title: function () {
+              const headers = LAST.headers || [];
+              const rows = LAST.rows || [];
+              const targetName = isAdmin ? (statName || '') : loginName;
+              const deptLabel = getDeptLabel(headers, rows, targetName);
+              const baseName = (deptLabel || '部門') + '_' + (isAdmin ? (targetName || '全部') : (loginName || '查詢'));
+              return baseName + '_' + (currentSheet || '分頁');
+            }
+          },
+          {
+            extend: 'csvHtml5',
+            text: '匯出 CSV',
+            title: function () {
+              const headers = LAST.headers || [];
+              const rows = LAST.rows || [];
+              const targetName = isAdmin ? (statName || '') : loginName;
+              const deptLabel = getDeptLabel(headers, rows, targetName);
+              const baseName = (deptLabel || '部門') + '_' + (isAdmin ? (targetName || '全部') : (loginName || '查詢'));
+              return baseName + '_' + (currentSheet || '分頁');
+            }
+          }
+        ]
+      };
+
+      if (currentFrozenLeft > 0) {
+        dtOptions.fixedColumns = { start: true, leftColumns: currentFrozenLeft };
+      }
+
+      table = new DataTable('#tbl', dtOptions);
+
+      //  管理者：不依賴「管理者姓名選擇」；直接用 DataTables 上方搜尋框（姓名）決定「單人假別欄位篩選」範圍
+            (function bindLeaveFilterSync_(){
+        //  目的：管理者登入時，不依賴「管理者姓名選擇」，
+        // 只要使用 DataTables 分頁搜尋框（全域搜尋）輸入姓名，就能即時產生「假別」下拉。
+        let timer = null;
+
+        function scheduleSync(shouldApply) {
+          if (!table) return;
+          if (leaveFilterBlock && leaveFilterBlock.style.display === 'none') return;
+
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(function () {
+            const currentTag = leaveFilterSelect.value || '';
+            updateLeaveFilterOptions();
+
+            // 保留原選取並嘗試套用（若該假別在新姓名下不存在則清除）
+            if (!currentTag) return;
+            const exists = Array.from(leaveFilterSelect.options).some(o => o.value === currentTag);
+            if (exists) {
+              leaveFilterSelect.value = currentTag;
+              // draw 事件會被 applyLeaveFilterInternal() 觸發；為避免重繪循環，只有在「搜尋/輸入」時才重新套用
+              if (shouldApply) {
+                applyLeaveFilterInternal(currentTag);
+              }
+            } else {
+              // 若該假別在新篩選結果中不存在，等同清除
+              if (shouldApply) {
+                clearLeaveFilterInternal();
+              }
+            }
+          }, 0);
+        }
+
+        //  最可靠：監聽 DataTables 的 draw/search（確保過濾已完成）
+        try {
+          if (table && typeof table.on === 'function') {
+            table.on('draw', function(){ scheduleSync(false); });
+            table.on('search', function(){ scheduleSync(true); });
+          }
+        } catch (e) {}
+
+        //  fallback：直接監聽搜尋框（不同版本 DataTables wrapper class 可能不同）
+        const input = document.querySelector('#tbl_wrapper .dt-search input, #tbl_filter input');
+        if (input) {
+          input.addEventListener('input', function(){ scheduleSync(true); });
+          input.addEventListener('keyup', function(){ scheduleSync(true); });
+        }
+
+        //  初次渲染：也同步一次（避免初始化時 rows 尚未 ready）
+        scheduleSync(false);
+      })();
+;
+
+      if (isAdmin) {
+        const headers = LAST.headers || [];
+        const rows = LAST.rows || [];
+        const nameIdx = findNameCol(headers);
+        const groupIdx = findDeptCol(headers);
+
+        const deptSet = new Set();
+        const nameSet = new Set();
+
+        rows.forEach(row => {
+          if (groupIdx >= 0) {
+            const dept = String(row.v[groupIdx] || '').trim();
+            if (dept) deptSet.add(dept);
+          }
+          if (nameIdx >= 0) {
+            const nm = String(row.v[nameIdx] || '').trim();
+            if (nm) nameSet.add(nm);
+          }
+        });
+
+        const deptList = Array.from(deptSet)
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, 'zh-HANT'));
+
+        if (nameIdx >= 0 && nameSet.size > 0) {
+          kpiSheet.textContent = (nameSet.size || 0) + ' 人';
+        } else {
+          kpiSheet.textContent = (rows.length || 0) + ' 筆';
+        }
+
+        if (deptSet.size > 0) {
+          kpiCount.textContent =
+            (deptSet.size || 0) + ' 個部門' +
+            (deptList.length ? '（' + deptList.join('、') + '）' : '' );
+        } else {
+          kpiCount.textContent = (rows.length || 0) + ' 筆資料';
+        }
+      } else {
+        kpiCount.textContent = ROWS.length || 0;
+        const usedSheet = String(payload.sheetNameUsed || '').trim();
+        if (usedSheet && currentSheet && usedSheet !== currentSheet) {
+          kpiSheet.textContent = (currentSheet || '—') + '（實讀：' + usedSheet + '）';
+        } else {
+          kpiSheet.textContent = currentSheet || usedSheet || '—';
+        }
+      }
+
+      //  計算分頁人數與離職人數
+      computePageStats();
+
+      updateFreezeOptions();
+      updateLeaveFilterOptions();
+      updateAttStatDateOptions();
+
+      //  初次渲染也做一次同步（防止偶發表頭/欄位寬度不同步）
+      syncDtLayout_();
+    }
+
+    let loadToken = 0;
+    let lastLoadedSheetUsed = '';
+
+    async function loadGrid() {
+      if (!loginName) return;
+      setLoading('載入資料中…');
+
+      const token = ++loadToken;
+
+      try {
+        const apiName = isAdmin ? '' : loginName;
+        const wh = isAdmin ? (currentWarehouse || WH_KEY_INIT || '') : (currentWarehouse || WH_KEY_INIT || '');
+        const url = BASE_URL +
+          '?mode=api' +
+          '&wh=' + encodeURIComponent(wh) +
+          '&sheet=' + encodeURIComponent(currentSheet) +
+          '&name=' + encodeURIComponent(apiName);
+        const res = await fetch(url, { cache: 'no-store' });
+        const resp = await res.json();
+
+        //  若使用者快速切換分頁/倉別，忽略舊請求回應，避免畫面跳回舊分頁
+        if (token !== loadToken) return;
+
+        if (resp && (resp.error || resp.ok === false)) {
+          setLoading('後端錯誤：' + (resp.error || resp.msg || '未知錯誤'));
+          return;
+        }
+
+        // 新版 API: { ok, data: payload }
+        const data = (resp && resp.data) ? resp.data : resp;
+
+        //  以後端實際使用分頁同步前端狀態，避免第一次載入分頁跳動
+        const used = String(data && data.sheetNameUsed ? data.sheetNameUsed : '').trim();
+        if (used) {
+          lastLoadedSheetUsed = used;
+          if (currentSheet !== used) {
+            currentSheet = used;
+            try {
+              if (sheetSelect && sheetSelect.value !== used) {
+                sheetSelect.value = used;
+              }
+            } catch (_) {}
+          }
+        }
+
+        renderTable(data);
+        setLoading('');
+      } catch (err) {
+        setLoading('載入失敗：' + err);
+      }
+    }
+
+    function enterApp(name, isAdminFlag, skipInitialLoad) {
+      loginName = name;
+      isAdmin   = !!isAdminFlag;
+      statName  = isAdmin ? '' : name;
+
+      userDisplayName.textContent = name;
+      kpiName.textContent = name;
+      kpiSheet.textContent = currentSheet || '—';
+
+      statNameInput.value = statName;
+
+      currentWarehouse = WH_KEY_INIT || currentWarehouse || '';
+      if (warehouseSelect) {
+        warehouseSelect.value = currentWarehouse;
+      }
+      if (openWarehouseSelect) {
+        openWarehouseSelect.value = currentWarehouse || WH_KEY_INIT || '';
+      }
+      updateBrandLabel();
+
+      loginPage.style.display = 'none';
+      appPage.style.display = 'block';
+
+      updateStatsVisibility();
+
+      if (!skipInitialLoad) {
+        loadGrid();
+      }
+    }
+
+    function doLogin() {
+      const name = loginNameInput.value.trim();
+      const birthday = loginBirthdayInput.value.trim();
+      loginError.textContent = '';
+
+      if (!name || !birthday) {
+        loginError.textContent = '請輸入姓名與生日。';
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = '<span>驗證中…</span>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = '<span>登入系統</span>';
+          if (!res || !res.ok) {
+            loginError.textContent = (res && res.msg) ? res.msg : '登入失敗，請稍後再試。';
+            return;
+          }
+
+          //  成功登入才存；不自動填入：只更新清單
+          saveLoginHistory(name, birthday);
+          renderLoginHistory();
+
+          hideLoginHistorySuggest();
+
+          //  先進主畫面，避免等待 getSheets 時卡在登入頁
+          enterApp(res.name, !!res.isAdmin, true);
+          setLoading('載入資料中…');
+
+          (async function () {
+            try {
+              const wk = String(res.warehouseKey || res.whKey || res.warehouse || '').trim();
+              if (wk) {
+                currentWarehouse = wk;
+                if (warehouseSelect) warehouseSelect.value = wk;
+                updateBrandLabel();
+
+                //  先載入資料（讓後端自行選預設分頁並回傳 sheetNameUsed），不等待 getSheets
+                currentSheet = '';
+                if (loginName) loadGrid();
+
+                const url = BASE_URL + '?mode=getSheets&wh=' + encodeURIComponent(wk);
+                const r = await fetch(url, { cache: 'no-store' });
+                const data = await r.json();
+                let names = data && (data.sheets || data.sheetNames) ? (data.sheets || data.sheetNames) : [];
+                if (!Array.isArray(names)) names = [];
+                if (names.length) {
+                  const cur = currentSheet;
+                  const hasCur = cur && names.indexOf(cur) >= 0;
+                  let prefer = '';
+                  if (names.indexOf('出勤記錄') >= 0) prefer = '出勤記錄';
+                  else if (names.indexOf('班表') >= 0) prefer = '班表';
+                  else prefer = names[0];
+
+                  //  只有當目前分頁不存在時，才切到 prefer
+                  if (!hasCur) currentSheet = prefer;
+
+                  const optsHtml = names.map(function (nm) {
+                    return '<option value="' + escapeHTML(nm) + '"' +
+                      (nm === currentSheet ? ' selected' : '') +
+                      '>' + escapeHTML(nm) + '</option>';
+                  }).join('');
+                  sheetSelect.innerHTML = optsHtml;
+                  kpiSheet.textContent = currentSheet || '—';
+
+                  //  避免第一次載入「跳分頁」：只有真的需要換分頁且目前資料不是該分頁時才重載
+                  if (!hasCur && loginName && currentSheet && lastLoadedSheetUsed && currentSheet !== lastLoadedSheetUsed) {
+                    loadGrid();
+                  }
+                }
+              }
+            } catch (_) {}
+          })();
+        })
+        .withFailureHandler(function (err) {
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = '<span>登入系統</span>';
+          loginError.textContent = '系統錯誤：' + (err && err.message ? err.message : err);
+        })
+        .verifyLogin(name, birthday);
+    }
+
+    loginBtn.addEventListener('click', doLogin);
+
+    logoutBtn.addEventListener('click', function () {
+      loginName = '';
+      isAdmin = false;
+      statName = '';
+      currentWarehouse = WH_KEY_INIT || '';
+
+      userDisplayName.textContent = '—';
+      kpiName.textContent = '—';
+      kpiSheet.textContent = '—';
+      kpiCount.textContent = '—';
+      pageTotal.textContent = '—';
+      pageLeave.textContent = '—';
+
+      if (table) {
+        table.destroy();
+        table = null;
+      }
+      const tblEl = document.getElementById('tbl');
+      if (tblEl) tblEl.innerHTML = '';
+
+      destroySingleStat();
+      destroyAttStat();
+      destroyAllAttStat();
+
+      if (warehouseSelect) {
+        warehouseSelect.value = currentWarehouse;
+      }
+      if (openWarehouseSelect) {
+        openWarehouseSelect.value = currentWarehouse || WH_KEY_INIT || '';
+      }
+      updateBrandLabel();
+
+      sheetSelect.value = SHEET_INIT || '';
+      currentSheet = SHEET_INIT;
+      updateStatsVisibility();
+
+      loginNameInput.value = '';
+      loginBirthdayInput.value = '';
+      loginError.textContent = '';
+
+      appPage.style.display = 'none';
+      loginPage.style.display = 'flex';
+
+      //  回到登入頁：不自動填入，只更新清單（點輸入框才會顯示）
+      renderLoginHistory();
+      hideLoginHistorySuggest();
+    });
+
+    loginBirthdayInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') doLogin();
+    });
+    loginNameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        loginBirthdayInput.focus();
+      }
+    });
+
+    sheetSelect.addEventListener('change', function () {
+      currentSheet = sheetSelect.value;
+      if (!isAdmin) {
+        kpiSheet.textContent = currentSheet || '—';
+      }
+      updateStatsVisibility();
+      if (loginName) loadGrid();
+    });
+
+    reloadBtn.addEventListener('click', function () {
+      if (loginName) loadGrid();
+    });
+
+    applyFreezeBtn.addEventListener('click', function () {
+      if (!LAST.headers || !LAST.headers.length) return;
+      const s = parseInt(freezeStart.value, 10);
+      const e = parseInt(freezeEnd.value, 10);
+      if (isNaN(s) || isNaN(e)) return;
+      const maxIndex = Math.max(s, e);
+      currentFrozenLeft = Math.min(LAST.headers.length, maxIndex + 1);
+      renderTableWithFrozen();
+    });
+
+    resetFreezeBtn.addEventListener('click', function () {
+      currentFrozenLeft = 0;
+      renderTableWithFrozen();
+    });
+
+    leaveFilterSelect.addEventListener('change', function () {
+      const tag = this.value;
+      if (!tag) {
+        clearLeaveFilterInternal();
+      } else {
+        applyLeaveFilterInternal(tag);
+      }
+    });
+
+    clearLeaveFilterBtn.addEventListener('click', function () {
+      clearLeaveFilterInternal();
+    });
+
+    document.getElementById('buildSingleStat').addEventListener('click', buildSingleStat);
+    document.getElementById('clearSingleStat').addEventListener('click', function () {
+      destroySingleStat();
+    });
+
+    statNameInput.addEventListener('input', function () {
+      statName = this.value.trim();
+    });
+    clearStatNameBtn.addEventListener('click', function () {
+      statName = '';
+      statNameInput.value = '';
+    });
+
+    buildAttStatBtn.addEventListener('click', buildAttStat);
+    clearAttStatBtn.addEventListener('click', function () {
+      attEndDateSelect.value = '';
+      attSingleDateSelect.value = '';
+      destroyAttStat();
+    });
+
+    buildAllAttStatBtn.addEventListener('click', buildAllAttStat);
+    clearAllAttStatBtn.addEventListener('click', function () {
+      destroyAllAttStat();
+    });
+
+    if (warehouseSelect) {
+      warehouseSelect.addEventListener('change', async function () {
+        const selected = warehouseSelect.value;
+        if (!isAdmin) {
+          warehouseSelect.value = currentWarehouse || WH_KEY_INIT || '';
+          return;
+        }
+        if (!selected || selected === currentWarehouse) return;
+
+        currentWarehouse = selected;
+        updateBrandLabel();
+
+        setLoading('讀取 ' + currentWarehouse + ' 分頁中…');
+
+        try {
+          const url = BASE_URL +
+            '?mode=getSheets&wh=' + encodeURIComponent(currentWarehouse);
+          const res = await fetch(url, { cache: 'no-store' });
+          const data = await res.json();
+          let names = data && (data.sheets || data.sheetNames) ? (data.sheets || data.sheetNames) : [];
+          if (!Array.isArray(names)) names = [];
+
+          sheetSelect.innerHTML = '';
+
+          if (!names.length) {
+            currentSheet = '';
+            kpiSheet.textContent = '—';
+            if (table) {
+              table.destroy();
+              table = null;
+            }
+            const tblEl = document.getElementById('tbl');
+            if (tblEl) tblEl.innerHTML = '';
+            setLoading('此倉沒有可用分頁');
+            updateStatsVisibility();
+            return;
+          }
+
+          let prefer = '';
+          if (names.indexOf('出勤記錄') >= 0) {
+            prefer = '出勤記錄';
+          } else if (names.indexOf('班表') >= 0) {
+            prefer = '班表';
+          } else {
+            prefer = names[0];
+          }
+          currentSheet = prefer;
+
+          const optsHtml = names.map(function (nm) {
+            return '<option value="' + escapeHTML(nm) + '"' +
+              (nm === currentSheet ? ' selected' : '') +
+              '>' + escapeHTML(nm) + '</option>';
+          }).join('');
+          sheetSelect.innerHTML = optsHtml;
+
+          kpiSheet.textContent = currentSheet || '—';
+
+          updateStatsVisibility();
+          loadGrid();
+        } catch (err) {
+          setLoading('讀取分頁清單失敗：' + err);
+        }
+      });
+    }
+
+    function findWarehouseByNameAndMaybeSwitch_() {
+      if (!isAdmin) return;
+      if (!findWarehouseName) return;
+      const nm = String(findWarehouseName.value || '').trim();
+      if (!nm) {
+        alert('請輸入姓名');
+        return;
+      }
+
+      setLoading('辨識倉別中…');
+
+      google.script.run
+        .withSuccessHandler(function (data) {
+          try {
+            if (!data || data.ok === false) {
+              throw new Error(String((data && (data.error || data.msg)) || '查詢失敗'));
+            }
+            const wh = String(data.warehouseKey || data.warehouse || data.whKey || data.key || '').trim();
+            if (!wh) throw new Error('查詢失敗');
+
+            if (wh === currentWarehouse) {
+              alert('已在 ' + wh);
+              return;
+            }
+
+            const ok = confirm('姓名「' + nm + '」屬於倉別 ' + wh + '。是否切換到該倉？');
+            if (!ok) return;
+
+            if (warehouseSelect) {
+              warehouseSelect.value = wh;
+              warehouseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+              return;
+            }
+
+            currentWarehouse = wh;
+            updateBrandLabel();
+          } catch (err) {
+            alert(String(err && err.message ? err.message : err));
+          } finally {
+            setLoading('');
+          }
+        })
+        .withFailureHandler(function (err) {
+          setLoading('');
+          alert(String(err && err.message ? err.message : err));
+        })
+        .findWarehouseByName(nm);
+    }
+
+    if (findWarehouseBtn) {
+      findWarehouseBtn.addEventListener('click', function () {
+        findWarehouseByNameAndMaybeSwitch_();
+      });
+    }
+    if (findWarehouseName) {
+      findWarehouseName.addEventListener('keydown', function (e) {
+        if (e && e.key === 'Enter') {
+          e.preventDefault();
+          findWarehouseByNameAndMaybeSwitch_();
+        }
+      });
+    }
+
+
+    
+    //  管理者：開啟各倉 Google Sheet 試算表（新分頁）
+    // 這裡改成 <a target="_blank"> 連結，讓瀏覽器視為一般連結開新分頁，避免被 popup blocker 擋
+    function setOpenSheetLink_(key, sid) {
+      if (!openSheetBtn) return;
+      if (sid) {
+        openSheetBtn.href = 'https://docs.google.com/spreadsheets/d/' + sid + '/edit';
+        openSheetBtn.setAttribute('aria-disabled', 'false');
+        //  解除「不可點」狀態（避免 aria-disabled 時被 CSS pointer-events 擋住）
+        openSheetBtn.style.pointerEvents = '';
+        openSheetBtn.style.cursor = '';
+        openSheetBtn.textContent = '↗ 開啟';
+      } else {
+        // 沒拿到 ID 時先保留原本行為（看起來是 disabled），但允許點擊來觸發重新抓取/提示
+        openSheetBtn.href = 'javascript:void(0)';
+        openSheetBtn.setAttribute('aria-disabled', 'true');
+        //  強制可點（覆寫 CSS 的 pointer-events: none）
+        openSheetBtn.style.pointerEvents = 'auto';
+        openSheetBtn.style.cursor = 'pointer';
+        openSheetBtn.textContent = '↗ 開啟';
+      }
+    }
+
+    async function refreshOpenSheetLink_() {
+      if (!openWarehouseSelect) return;
+
+      const key = String(openWarehouseSelect.value || currentWarehouse || WH_KEY_INIT || '').trim();
+
+      // 先用頁面注入的 WH_IDS 取一次
+      let sid = (WH_IDS && typeof WH_IDS === 'object' && key) ? WH_IDS[key] : '';
+
+      if (sid) {
+        setOpenSheetLink_(key, sid);
+        return;
+      }
+
+      // 若 WH_IDS 沒帶到（或被快取/截斷），改向後端要一次 ID（只更新 href，不做 window.open）
+      setOpenSheetLink_(key, '');
+      if (openSheetBtn) openSheetBtn.textContent = '⏳ 讀取中';
+
+      try {
+        const res = await fetch(
+          BASE_URL + '?mode=getWarehouseId&wh=' + encodeURIComponent(key),
+          { cache: 'no-store' }
+        );
+        const data = await res.json();
+        if (data && data.ok && data.spreadsheetId) {
+          sid = data.spreadsheetId;
+          try { WH_IDS[key] = sid; } catch (_) {}
+        }
+      } catch (_) {}
+
+      setOpenSheetLink_(key, sid);
+
+      if (!sid && openSheetBtn) {
+        openSheetBtn.textContent = '↗ 開啟';
+      }
+    }
+
+    if (openWarehouseSelect) {
+      openWarehouseSelect.addEventListener('change', function () {
+        if (!isAdmin) return;
+        refreshOpenSheetLink_();
+      });
+    }
+
+    if (openSheetBtn) {
+      openSheetBtn.addEventListener('click', function (e) {
+        if (!isAdmin) { e.preventDefault(); return; }
+
+        // 連結尚未準備好 → 阻止跳轉並提示（正常情況不會發生，因為 WH_IDS 已注入）
+        const disabled = openSheetBtn.getAttribute('aria-disabled') === 'true';
+        if (disabled || !openSheetBtn.href || openSheetBtn.href.indexOf('docs.google.com/spreadsheets/d/') < 0) {
+          e.preventDefault();
+          refreshOpenSheetLink_().then(function () {
+            const ok = openSheetBtn.getAttribute('aria-disabled') !== 'true';
+            if (!ok) {
+              alert('找不到倉別試算表 ID：' + String(openWarehouseSelect.value || '').trim());
+            } else {
+              alert('連結已更新，請再點一次「↗ 開啟」。');
+            }
+          });
+        }
+      });
+    }
+
+
+    (function initSheetSelect() {
+      currentSheet = SHEET_INIT;
+      currentWarehouse = WH_KEY_INIT || currentWarehouse || '';
+      if (warehouseSelect) {
+        warehouseSelect.value = currentWarehouse;
+      }
+      if (openWarehouseSelect) {
+        openWarehouseSelect.value = currentWarehouse || WH_KEY_INIT || '';
+      }
+      kpiSheet.textContent = currentSheet || '—';
+      updateBrandLabel();
+      updateStatsVisibility();
+
+      //  初始化：清理 10 日過期資料並渲染（但不顯示）
+      renderLoginHistory();
+      hideLoginHistorySuggest();
+    })();
+  })();
+</script>
+</body>
+</html>
