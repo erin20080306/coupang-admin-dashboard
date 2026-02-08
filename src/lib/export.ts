@@ -56,8 +56,30 @@ export function exportExcelHtml(
 }
 
 export async function exportElementPng(element: HTMLElement, filenameBase: string) {
-  const canvas = await html2canvas(element, { backgroundColor: '#FFFFFF', scale: 2 });
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) return;
-  downloadBlob(blob, `${filenameBase}.png`);
+  // 暫時移除滾動限制，讓 html2canvas 捕捉完整內容
+  const originalOverflow = element.style.overflow;
+  const originalMaxHeight = element.style.maxHeight;
+  const originalHeight = element.style.height;
+  element.style.overflow = 'visible';
+  element.style.maxHeight = 'none';
+  element.style.height = 'auto';
+
+  try {
+    const canvas = await html2canvas(element, {
+      backgroundColor: '#FFFFFF',
+      scale: 2,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: element.scrollWidth,
+      windowHeight: element.scrollHeight,
+    });
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) return;
+    downloadBlob(blob, `${filenameBase}.png`);
+  } finally {
+    // 還原原本的樣式
+    element.style.overflow = originalOverflow;
+    element.style.maxHeight = originalMaxHeight;
+    element.style.height = originalHeight;
+  }
 }
