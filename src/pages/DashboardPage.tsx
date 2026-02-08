@@ -790,8 +790,8 @@ function findShiftKey(headers: string[]): string | null {
   return null;
 }
 
-function guessISOFromText(s: string): string {
-  const t = String(s || '').trim();
+function guessISOFromText(s: string, defaultYear?: string): string {
+  const t = String(s || '').trim().replace(/\s+/g, '');
   if (!t) return '';
   // 允許帶時間：2025-12-01 08:00:00
   let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -813,14 +813,14 @@ function guessISOFromText(s: string): string {
   }
   m = t.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
   if (m) {
-    const y = String(new Date().getFullYear());
+    const y = defaultYear || String(new Date().getFullYear());
     const mo = (`0${m[1]}`).slice(-2);
     const d = (`0${m[2]}`).slice(-2);
     return `${y}-${mo}-${d}`;
   }
-  m = t.match(/^(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日$/);
+  m = t.match(/^(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日?$/);
   if (m) {
-    const y = m[1] || String(new Date().getFullYear());
+    const y = m[1] || defaultYear || String(new Date().getFullYear());
     const mo = (`0${m[2]}`).slice(-2);
     const d = (`0${m[3]}`).slice(-2);
     return `${y}-${mo}-${d}`;
@@ -849,12 +849,12 @@ function filterDateColsUpToEnd(
   endIso: string
 ): number[] {
   const effectiveEnd = clampEndIso(endIso);
+  const yearFromEnd = String(effectiveEnd || '').slice(0, 4);
   const out: number[] = [];
   for (const ci of dateCols) {
     let iso = headersISO[ci];
-    if (!iso) iso = guessISOFromText(headers[ci] || '');
-    if (!iso) continue;
-    if (iso <= effectiveEnd) out.push(ci);
+    if (!iso) iso = guessISOFromText(headers[ci] || '', yearFromEnd);
+    if (!iso || iso <= effectiveEnd) out.push(ci);
   }
   return out;
 }
