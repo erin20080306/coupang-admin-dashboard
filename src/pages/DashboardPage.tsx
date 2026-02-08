@@ -689,7 +689,8 @@ function calcRowAttendance(
 
     const hk = headers[ci];
     if (!hk) continue;
-    const cellValue = (row as any)[hk];
+    const rawArr = (row as any)._v as unknown[] | undefined;
+    const cellValue = Array.isArray(rawArr) && ci >= 0 && ci < rawArr.length ? rawArr[ci] : (row as any)[hk];
     const cellStr = String(cellValue ?? '').trim();
     const parsed = parseCellForRules(cellValue);
 

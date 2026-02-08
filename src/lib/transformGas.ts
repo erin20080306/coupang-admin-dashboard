@@ -8,6 +8,7 @@ export type GasRecordRow = {
   _bg?: string[];
   _fc?: string[];
   _att?: number[];
+  _v?: unknown[];
   [key: string]: unknown;
 };
 
@@ -140,6 +141,7 @@ export function gasPayloadToRows(
     .filter((r) => !isBlankRow(r))
     .map((r, idx) => {
       const obj: GasRecordRow = { id: `gas_${idx}` };
+      obj._v = Array.isArray(r.v) ? r.v.slice() : [];
       for (let i = 0; i < headers.length; i++) {
         const key = headers[i] || `col_${i + 1}`;
         obj[key] = r.v?.[i] ?? '';
