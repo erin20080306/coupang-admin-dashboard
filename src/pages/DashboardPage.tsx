@@ -1182,20 +1182,19 @@ export default function DashboardPage() {
       const dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
       const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
 
-      // 如果 dateCols 是空的，從 headersISO 推測日期欄
-      let effectiveDateCols = dateCols;
-      if (!effectiveDateCols.length && headersISO.length) {
-        effectiveDateCols = headersISO
-          .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
-          .filter((i) => i >= 0);
-      }
+      // 從 headersISO 推測日期欄
+      const dateColsFromISO = headersISO
+        .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+        .filter((i) => i >= 0);
 
-      // 如果 dateCols 仍然是空的，從 headers 用 guessISOFromText 推測日期欄
-      if (!effectiveDateCols.length && headers.length) {
-        effectiveDateCols = headers
-          .map((h, i) => (guessISOFromText(h) ? i : -1))
-          .filter((i) => i >= 0);
-      }
+      // 從 headers 用 guessISOFromText 推測日期欄
+      const dateColsFromHeaders = headers
+        .map((h, i) => (guessISOFromText(h) ? i : -1))
+        .filter((i) => i >= 0);
+
+      // 合併所有來源的日期欄（取聯集）
+      const allDateCols = new Set([...dateCols, ...dateColsFromISO, ...dateColsFromHeaders]);
+      let effectiveDateCols = Array.from(allDateCols).sort((a, b) => a - b);
 
       // 排除未到日期，避免出勤率分母偏大
       effectiveDateCols = filterDateColsUpToEnd(effectiveDateCols, headers, headersISO, effectiveAttEndIso);
@@ -1405,21 +1404,21 @@ export default function DashboardPage() {
         const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
         setGasHeadersISO(headersISO);
         let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
-
-        // 如果 dateCols 是空的，從 headersISO 推測日期欄
-        if (!dateCols.length && headersISO.length) {
-          dateCols = headersISO
-            .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
-            .filter((i) => i >= 0);
-        }
-
-        // 如果 dateCols 仍然是空的，從 headers 用 guessISOFromText 推測日期欄
         const rawHeaders = Array.isArray(payload.headers) ? payload.headers.map((h) => String(h ?? '')) : [];
-        if (!dateCols.length && rawHeaders.length) {
-          dateCols = rawHeaders
-            .map((h, i) => (guessISOFromText(h) ? i : -1))
-            .filter((i) => i >= 0);
-        }
+
+        // 從 headersISO 推測日期欄
+        const dateColsFromISO = headersISO
+          .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+          .filter((i) => i >= 0);
+
+        // 從 headers 用 guessISOFromText 推測日期欄
+        const dateColsFromHeaders = rawHeaders
+          .map((h, i) => (guessISOFromText(h) ? i : -1))
+          .filter((i) => i >= 0);
+
+        // 合併所有來源的日期欄（取聯集）
+        const allDateCols = new Set([...dateCols, ...dateColsFromISO, ...dateColsFromHeaders]);
+        dateCols = Array.from(allDateCols).sort((a, b) => a - b);
         setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
         const { headers, rows: gasRows } = gasPayloadToRows(payload, {

@@ -40,12 +40,26 @@ function resolveWarehouse_(wh) {
 
 function fastPayloadForName_(ss, sh, sheetName, name, lastRow, lastCol, frozenLeft) {
   var maxCheck = Math.min(lastRow, 3);
+  // 用 getDisplayValues 取得顯示值（給 headers 用）
   var headVals = sh.getRange(1, 1, maxCheck, lastCol).getDisplayValues();
+  // 用 getValues 取得實際值（給日期解析用）
+  var headValsRaw = sh.getRange(1, 1, maxCheck, lastCol).getValues();
   if (!headVals || !headVals.length) return null;
 
   var headerRowIndex = detectHeaderRowIndex_(headVals);
   var headers = headVals[headerRowIndex] || [];
-  var headersISO = headers.map(guessISOFromHeaderText_);
+  // 用實際值來解析日期，確保能取得完整年份
+  var headersRaw = headValsRaw[headerRowIndex] || [];
+  var headersISO = headersRaw.map(function(cell) {
+    // 如果是 Date 物件，直接轉換
+    if (cell instanceof Date && !isNaN(cell.getTime())) {
+      var y = cell.getFullYear();
+      var m = ('0' + (cell.getMonth() + 1)).slice(-2);
+      var d = ('0' + cell.getDate()).slice(-2);
+      return y + '-' + m + '-' + d;
+    }
+    return guessISOFromHeaderText_(cell);
+  });
 
   var dateCols = [];
   for (var i = 0; i < headersISO.length; i++) {
