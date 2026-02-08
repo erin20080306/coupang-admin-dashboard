@@ -855,7 +855,9 @@ function filterDateColsUpToEnd(
   for (const ci of dateCols) {
     let iso = headersISO[ci];
     if (!iso) iso = guessISOFromText(headers[ci] || '', yearFromEnd);
-    if (!iso || iso <= effectiveEnd) out.push(ci);
+    if (!iso || iso <= effectiveEnd) {
+      out.push(ci);
+    }
   }
   return out;
 }
