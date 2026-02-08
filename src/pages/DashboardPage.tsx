@@ -1181,6 +1181,13 @@ export default function DashboardPage() {
           .filter((i) => i >= 0);
       }
 
+      // 如果 dateCols 仍然是空的，從 headers 用 guessISOFromText 推測日期欄
+      if (!effectiveDateCols.length && headers.length) {
+        effectiveDateCols = headers
+          .map((h, i) => (guessISOFromText(h) ? i : -1))
+          .filter((i) => i >= 0);
+      }
+
       // 排除未到日期，避免出勤率分母偏大
       effectiveDateCols = filterDateColsUpToEnd(effectiveDateCols, headers, headersISO, effectiveAttEndIso);
 
@@ -1394,6 +1401,14 @@ export default function DashboardPage() {
         if (!dateCols.length && headersISO.length) {
           dateCols = headersISO
             .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+            .filter((i) => i >= 0);
+        }
+
+        // 如果 dateCols 仍然是空的，從 headers 用 guessISOFromText 推測日期欄
+        const rawHeaders = Array.isArray(payload.headers) ? payload.headers.map((h) => String(h ?? '')) : [];
+        if (!dateCols.length && rawHeaders.length) {
+          dateCols = rawHeaders
+            .map((h, i) => (guessISOFromText(h) ? i : -1))
             .filter((i) => i >= 0);
         }
         setGasDateCols(dateCols);
