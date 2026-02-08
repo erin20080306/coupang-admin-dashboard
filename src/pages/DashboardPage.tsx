@@ -611,17 +611,17 @@ async function buildPresentSetFromAttendanceSheets(
 /** 排除分母（應到）的項目 */
 const EXCLUDE_FROM_DENOM = new Set<string>([
   '休', '休假', '休假日',
-  '例', '例假', '例假日',
+  '例', '例假', '例假日', '例休',
   '國', '國出',
-  '未', '離', '調倉', '調任', '颱風', '公假',
+  '未', '離', '調倉', '調任', '颱風', '公假', '轉正',
 ]);
 
 /** 排除缺勤（自動算實到）的項目 */
 const EXCLUDE_FROM_ABS = new Set<string>([
   '休', '休假', '休假日',
-  '例', '例假', '例假日',
+  '例', '例假', '例假日', '例休',
   '國', '國出',
-  '未', '離', '調倉', '調任', '颱風', '公假',
+  '未', '離', '調倉', '調任', '颱風', '公假', '轉正',
   '特',
 ]);
 
@@ -636,20 +636,9 @@ function parseCellForRules(cell: unknown): { excludeDen: boolean; excludeAbs: bo
   const raw = (cell == null ? '' : String(cell)).trim();
   if (!raw) return { excludeDen: false, excludeAbs: false };
   const tokens = tokenizeCell(raw);
-  const excludeDen = tokens.some((t) => {
-    if (EXCLUDE_FROM_DENOM.has(t)) return true;
-    for (const k of EXCLUDE_FROM_DENOM) {
-      if (t.includes(k)) return true;
-    }
-    return false;
-  });
-  const excludeAbs = tokens.some((t) => {
-    if (EXCLUDE_FROM_ABS.has(t)) return true;
-    for (const k of EXCLUDE_FROM_ABS) {
-      if (t.includes(k)) return true;
-    }
-    return false;
-  }) ||
+  // 精確匹配：只有當 token 完全等於排除項目時才排除
+  const excludeDen = tokens.some((t) => EXCLUDE_FROM_DENOM.has(t));
+  const excludeAbs = tokens.some((t) => EXCLUDE_FROM_ABS.has(t)) ||
     (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
   return { excludeDen, excludeAbs };
 }
