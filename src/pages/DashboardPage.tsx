@@ -528,18 +528,11 @@ function rowHasLeaveToken(r: DisplayRow): boolean {
 }
 
 function tokenizeCell(raw: unknown): string[] {
-  const s0 = (raw == null ? '' : String(raw));
-  const s = s0
-    .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
-    .replace(/\p{Cf}/gu, '')
-    .trim();
+  const s = (raw == null ? '' : String(raw)).trim();
   if (!s) return [];
   return s
-    .split(/[、，,;／\/\n\s\.．·•。]+/)
-    .map((x) => x
-      .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
-      .replace(/\p{Cf}/gu, '')
-      .trim())
+    .split(/[、，,;／\/\n]+/)
+    .map((x) => x.trim())
     .filter(Boolean);
 }
 
@@ -615,21 +608,19 @@ async function buildPresentSetFromAttendanceSheets(
   return present;
 }
 
-/** 排除分母（應到）的項目 */
+/** 排除分母（應到）的項目 - 對應舊版 EXCLUDE_FROM_DENOM */
 const EXCLUDE_FROM_DENOM = new Set<string>([
-  '休', '休假', '休假日',
   '例', '例假', '例假日', '例休',
-  '國', '國出',
-  '未', '離', '調倉', '調任', '颱風', '公假', '轉正',
+  '休', '休假', '休假日',
+  '國', '離', '調倉', '調任', '轉正',
 ]);
 
-/** 排除缺勤（自動算實到）的項目 */
+/** 排除缺勤（自動算實到）的項目 - 對應舊版 EXCLUDE_FROM_ABS */
 const EXCLUDE_FROM_ABS = new Set<string>([
-  '休', '休假', '休假日',
   '例', '例假', '例假日', '例休',
-  '國', '國出',
-  '未', '離', '調倉', '調任', '颱風', '公假', '轉正',
-  '特',
+  '休', '休假', '休假日',
+  '國', '離', '調倉', '調任', '轉正',
+  '未', '特',
 ]);
 
 const ALNUM_RE = /^[A-Za-z0-9]+$/;
@@ -640,16 +631,23 @@ const HAS_CJK_RE = /[\u4e00-\u9fff]/;
  * @returns excludeDen: 排除應到, excludeAbs: 排除缺勤（自動算實到）
  */
 function parseCellForRules(cell: unknown): { excludeDen: boolean; excludeAbs: boolean } {
-  const raw0 = (cell == null ? '' : String(cell));
-  const raw = raw0
-    .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
-    .replace(/\p{Cf}/gu, '')
-    .trim();
+  const raw = (cell == null ? '' : String(cell)).trim();
   if (!raw) return { excludeDen: false, excludeAbs: false };
   const tokens = tokenizeCell(raw);
-  // 精確匹配：只有當 token 完全等於排除項目時才排除
-  const excludeDen = tokens.some((t) => EXCLUDE_FROM_DENOM.has(t));
-  const excludeAbs = tokens.some((t) => EXCLUDE_FROM_ABS.has(t)) ||
+  const excludeDen = tokens.some((t) => {
+    if (EXCLUDE_FROM_DENOM.has(t)) return true;
+    for (const k of EXCLUDE_FROM_DENOM) {
+      if (t.includes(k)) return true;
+    }
+    return false;
+  });
+  const excludeAbs = tokens.some((t) => {
+    if (EXCLUDE_FROM_ABS.has(t)) return true;
+    for (const k of EXCLUDE_FROM_ABS) {
+      if (t.includes(k)) return true;
+    }
+    return false;
+  }) ||
     (tokens.length === 1 && ALNUM_RE.test(tokens[0]) && !HAS_CJK_RE.test(tokens[0]));
   return { excludeDen, excludeAbs };
 }
@@ -680,34 +678,33 @@ function calcRowAttendance(
   const hasAttArr = Array.isArray(attArr) && attArr.length > 0;
 
   for (const ci of dateCols) {
-    const hk = headers[ci];
-    if (!hk) continue;
-
     // 先嘗試用 headersISO，若為空則用 header 名稱推斷
     let iso = headersISO[ci];
     if (!iso) {
       iso = guessISOFromText(headers[ci] || '');
     }
-    // 注意：即使 iso 為空，只要該欄在 dateCols 中且有表頭，仍應計入應到
-    // ISO 只用於 presentSet 比對
+    if (!iso) continue;
 
+    const hk = headers[ci];
+    if (!hk) continue;
     const cellValue = (row as any)[hk];
     const cellStr = String(cellValue ?? '').trim();
     const parsed = parseCellForRules(cellValue);
 
     if (!parsed.excludeDen) {
       denom += 1;
+      const key = `${name}|${iso}`;
 
       // 判斷是否缺勤：
       // 1. 命中 excludeAbs → 不缺勤
-      // 2. presentSet 有資料且有 iso 且包含 key → 不缺勤
+      // 2. presentSet 有資料且包含 key → 不缺勤
       // 3. presentSet 為空但 _att 有資料且 att[ci]=1 → 不缺勤
       // 4. 以上都不滿足但格子有內容 → 不缺勤（最終 fallback）
       // 5. 以上都不滿足 → 缺勤
       let isAbsent = true;
       if (parsed.excludeAbs) {
         isAbsent = false;
-      } else if (hasPresentSet && iso && presentSet!.has(`${name}|${iso}`)) {
+      } else if (hasPresentSet && presentSet!.has(key)) {
         isAbsent = false;
       } else if (!hasPresentSet && hasAttArr && attArr![ci]) {
         isAbsent = false;
@@ -792,7 +789,7 @@ function findShiftKey(headers: string[]): string | null {
 }
 
 function guessISOFromText(s: string): string {
-  const t = String(s || '').trim().replace(/\s+/g, '');
+  const t = String(s || '').trim();
   if (!t) return '';
   // 允許帶時間：2025-12-01 08:00:00
   let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -819,33 +816,12 @@ function guessISOFromText(s: string): string {
     const d = (`0${m[2]}`).slice(-2);
     return `${y}-${mo}-${d}`;
   }
-  // X月X日 格式（允許有無空格，日字可選）
-  m = t.match(/^(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日?$/);
+  m = t.match(/^(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日$/);
   if (m) {
     const y = m[1] || String(new Date().getFullYear());
     const mo = (`0${m[2]}`).slice(-2);
     const d = (`0${m[3]}`).slice(-2);
     return `${y}-${mo}-${d}`;
-  }
-  // 純數字 X月X 格式（如 2月1）
-  m = t.match(/^(\d{1,2})月(\d{1,2})$/);
-  if (m) {
-    const y = String(new Date().getFullYear());
-    const mo = (`0${m[1]}`).slice(-2);
-    const d = (`0${m[2]}`).slice(-2);
-    return `${y}-${mo}-${d}`;
-  }
-  // 純數字 1~31（假設是當月的日期）
-  m = t.match(/^(\d{1,2})$/);
-  if (m) {
-    const day = parseInt(m[1], 10);
-    if (day >= 1 && day <= 31) {
-      const now = new Date();
-      const y = String(now.getFullYear());
-      const mo = (`0${now.getMonth() + 1}`).slice(-2);
-      const d = (`0${day}`).slice(-2);
-      return `${y}-${mo}-${d}`;
-    }
   }
   return '';
 }
@@ -875,8 +851,8 @@ function filterDateColsUpToEnd(
   for (const ci of dateCols) {
     let iso = headersISO[ci];
     if (!iso) iso = guessISOFromText(headers[ci] || '');
-    // 如果無法解析 ISO，保守起見仍保留該日期欄（無法判斷是否超過截止日）
-    if (!iso || iso <= effectiveEnd) out.push(ci);
+    if (!iso) continue;
+    if (iso <= effectiveEnd) out.push(ci);
   }
   return out;
 }
@@ -1205,19 +1181,13 @@ export default function DashboardPage() {
       const dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
       const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
 
-      // 從 headersISO 推測日期欄
-      const dateColsFromISO = headersISO
-        .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
-        .filter((i) => i >= 0);
-
-      // 從 headers 用 guessISOFromText 推測日期欄
-      const dateColsFromHeaders = headers
-        .map((h, i) => (guessISOFromText(h) ? i : -1))
-        .filter((i) => i >= 0);
-
-      // 合併所有來源的日期欄（取聯集）
-      const allDateCols = new Set([...dateCols, ...dateColsFromISO, ...dateColsFromHeaders]);
-      let effectiveDateCols = Array.from(allDateCols).sort((a, b) => a - b);
+      // 如果 dateCols 是空的，從 headersISO 推測日期欄
+      let effectiveDateCols = dateCols;
+      if (!effectiveDateCols.length && headersISO.length) {
+        effectiveDateCols = headersISO
+          .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+          .filter((i) => i >= 0);
+      }
 
       // 排除未到日期，避免出勤率分母偏大
       effectiveDateCols = filterDateColsUpToEnd(effectiveDateCols, headers, headersISO, effectiveAttEndIso);
@@ -1427,21 +1397,13 @@ export default function DashboardPage() {
         const headersISO = (payload.headersISO ?? []).map((h) => String(h ?? ''));
         setGasHeadersISO(headersISO);
         let dateCols = Array.isArray(payload.dateCols) ? payload.dateCols : [];
-        const rawHeaders = Array.isArray(payload.headers) ? payload.headers.map((h) => String(h ?? '')) : [];
 
-        // 從 headersISO 推測日期欄
-        const dateColsFromISO = headersISO
-          .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
-          .filter((i) => i >= 0);
-
-        // 從 headers 用 guessISOFromText 推測日期欄
-        const dateColsFromHeaders = rawHeaders
-          .map((h, i) => (guessISOFromText(h) ? i : -1))
-          .filter((i) => i >= 0);
-
-        // 合併所有來源的日期欄（取聯集）
-        const allDateCols = new Set([...dateCols, ...dateColsFromISO, ...dateColsFromHeaders]);
-        dateCols = Array.from(allDateCols).sort((a, b) => a - b);
+        // 如果 dateCols 是空的，從 headersISO 推測日期欄
+        if (!dateCols.length && headersISO.length) {
+          dateCols = headersISO
+            .map((iso, i) => (iso && iso.match(/^\d{4}-\d{2}-\d{2}$/) ? i : -1))
+            .filter((i) => i >= 0);
+        }
         setGasDateCols(dateCols);
         setGasFrozenLeft(Number((payload as any).frozenLeft ?? 0) || 0);
         const { headers, rows: gasRows } = gasPayloadToRows(payload, {
