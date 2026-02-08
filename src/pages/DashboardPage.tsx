@@ -528,11 +528,18 @@ function rowHasLeaveToken(r: DisplayRow): boolean {
 }
 
 function tokenizeCell(raw: unknown): string[] {
-  const s = (raw == null ? '' : String(raw)).trim();
+  const s0 = (raw == null ? '' : String(raw));
+  const s = s0
+    .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
+    .replace(/\p{Cf}/gu, '')
+    .trim();
   if (!s) return [];
   return s
-    .split(/[、，,;／\/\n]+/)
-    .map((x) => x.trim())
+    .split(/[、，,;／\/\n\s\.．·•。]+/)
+    .map((x) => x
+      .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
+      .replace(/\p{Cf}/gu, '')
+      .trim())
     .filter(Boolean);
 }
 
@@ -633,7 +640,11 @@ const HAS_CJK_RE = /[\u4e00-\u9fff]/;
  * @returns excludeDen: 排除應到, excludeAbs: 排除缺勤（自動算實到）
  */
 function parseCellForRules(cell: unknown): { excludeDen: boolean; excludeAbs: boolean } {
-  const raw = (cell == null ? '' : String(cell)).trim();
+  const raw0 = (cell == null ? '' : String(cell));
+  const raw = raw0
+    .replace(/[\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
+    .replace(/\p{Cf}/gu, '')
+    .trim();
   if (!raw) return { excludeDen: false, excludeAbs: false };
   const tokens = tokenizeCell(raw);
   // 精確匹配：只有當 token 完全等於排除項目時才排除
