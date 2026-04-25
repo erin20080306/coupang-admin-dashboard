@@ -10,7 +10,7 @@ const WAREHOUSE_IDS = {
   'TAO5': '1jzVXC6gt36hJtlUHoxtTzZLMNj4EtTsd4k8eNB1bdiA',
   'TAO6': '1wwPLSLjl2abfM_OMdTNI9PoiPKo3waCV_y0wmx2DxAE',
   'TAO7': '16nGCqRO8DYDm0PbXFbdt-fiEFZCXxXjlOWjKU67p4LY',
-  'TAO10': '1y0w49xdFlHvcVtgtG8fq6zdrF26y8j7HMFh5ujzUyR4',
+  'TPH1': '1y0w49xdFlHvcVtgtG8fq6zdrF26y8j7HMFh5ujzUyR4',
   'TAO17': '1Ek8g3-9uKR31s5ffCf09dQWG4bltGp7B-No6m8eP5C4'
 };
 

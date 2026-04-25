@@ -30,7 +30,7 @@ export type QueryResult = {
   stats: { total: number; attended: number; late: number; absent: number };
 };
 
-const WAREHOUSES = ['TAO1', 'TAO3', 'TAO4', 'TAO5', 'TAO6', 'TAO7', 'TAO10', 'TAO17'];
+const WAREHOUSES = ['TAO1', 'TAO3', 'TAO4', 'TAO5', 'TAO6', 'TAO7', 'TPH1', 'TAO17'];
 const PAGES = ['班表', '出勤記錄', '出勤時數'];
 
 function mulberry32(seed: number) {
