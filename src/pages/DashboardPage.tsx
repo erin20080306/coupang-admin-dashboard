@@ -1946,7 +1946,10 @@ export default function DashboardPage() {
     if (!isAdmin) return;
     if (!useGas) return;
 
-    const cached = openSheetSidByWh[warehouse];
+    // Open TAO10 directly even before the Apps Script mapping is deployed.
+    const cached = warehouse === 'TAO10'
+      ? '1Fh8cZNF7uwg2Ufjyxkl4pWJ4xye3zL2csjsKTp-rxBk'
+      : openSheetSidByWh[warehouse];
     if (cached) {
       const url = `https://docs.google.com/spreadsheets/d/${cached}/edit`;
       const w = window.open(url, '_blank', 'noopener,noreferrer');
